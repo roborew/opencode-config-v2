@@ -85,6 +85,19 @@ plan = Claude Opus 5.5 (Zen), build = DeepSeek V4.1 Flash (Go), personas =
 MiniMax M3 / Qwen3.8 Max (Go), titles = GPT 6 Luna (Go); waiting on the PR
 monitor costs nothing.
 
+## Dependencies and supply chain
+
+`npm audit` (against the committed lockfile) currently reports 24 **moderate**
+findings, 0 high/critical. All are transitive through the pinned official
+`@opencode/plugin@2.3.0` SDK (npm-CLI internals: `glob`/`minimatch`,
+`@npmcli/arborist`, `rimraf` — pulled by `@opencode/util` and `@opencode/ai`),
+with no fix available at our ranges. Deferred as unreachable: those code paths
+run only for npm-published plugin packages and cleanup tasks, never from
+untrusted input — our plugins load from local directories. Review when
+`@opencode/plugin` is next bumped. Secret scanning: gitleaks 8.30.1 over the
+full history is clean, and CI re-runs gitleaks on every commit; the action
+SHAs in CI are pinned.
+
 ## Upgrading OpenCode
 
 OpenCode is pinned at **2.3.0** (`curl -fsSL https://opencode.ai/v2/install |

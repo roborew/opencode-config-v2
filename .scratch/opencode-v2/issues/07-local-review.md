@@ -4,7 +4,7 @@
 
 **Blocked by:** 05
 
-**Status:** ready-for-agent
+**Status:** files complete (2026-11-14); live persona run on an app repo scratch branch pending (needs model auth)
 
 - [ ] code-reviewer flags a deliberately weakened test and a hand-edited generated client on a scratch branch of an app repo
 - [ ] security-auditor runs only on its trigger

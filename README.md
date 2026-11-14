@@ -26,21 +26,49 @@ to the code. The template covers layout and architecture only. How the flow
 tests is defined by the test contract in `docs/plan/blueprint.md` (§7.2, §9.2),
 not by the template.
 
+## Install
+
+### Mac
+
+1. Back up the old config if any, then clone this repo as the config directory:
+   `git clone git@github.com:roborew/opencode-config-v2.git ~/.config/opencode`
+   (the old v1 config that lived there is retired — nothing is copied from it).
+2. `cd ~/.config/opencode && npm install` — installs `@opencode/plugin`, which the
+   plugins in `plugins/` resolve at runtime.
+3. `opencode` (2.3.0 pinned) → `/connect` for **OpenCode** (Zen) and **OpenCode Go**, and
+   paste the API keys. In Go's **Settings › Privacy › Regions** choose **Global** —
+   DeepSeek V4.1 Flash needs it.
+4. `gh auth login` — the flow creates issues, labels and PRs through `gh`.
+5. Optional: `OC_SANDBOX_BACKEND=docker` forces the local Docker backend (the default
+   is auto-detect: sidecar → sysbox, local Docker → docker).
+
+### Server
+
+The opencode-server image clones this repo at `CONFIG_REF` into the container's
+config directory and adds the server-only overrides (sidecar, gitdir rewrite,
+delete guard, localhost rewrite) — see blueprint §10–§11 and tickets 09–10 in the
+opencode-server repo. No CodeRabbit CLI and no preview/tunnel settings there.
+
+### Update addy's skills
+
+Ask for the `addy-sync` skill: it fetches upstream at a target ref, shows the diff
+of `skills/addy/` and `references/` against the pinned commit in
+`skills/addy/UPSTREAM.md`, applies it only after you approve, and updates
+`UPSTREAM.md`. The update commit carries an `Addy-Sync: <sha>` trailer — CI rejects
+`skills/addy/` changes without it.
+
+Daily use, BLOCKED handling, cleanup and upgrading OpenCode are in
+[`docs/runbook.md`](docs/runbook.md).
+
 ## Status
 
-Under construction from the plan pack. Start at
-[`docs/plan/README.md`](docs/plan/README.md) for the reading order and the
-build order of the tickets. Work is tracked locally in
-`.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until the GitHub tracker is
-switched on. The layout above (agents, commands, skills, plugins) is filled in
-by later tickets; the initial commit holds the plan pack, the Project Template,
-this README and CI.
-
-## Updating addy's skills
-
-addy's agent-skills are vendored **unmodified** under `skills/addy/` at the
-commit pinned in `skills/addy/UPSTREAM.md` (MIT licence). Only the `addy-sync`
-skill may change that folder; CI rejects any other change to it.
+The flow is implemented (tickets 00–08, 11): config skeleton, vendored addy
+skills, the four plugins (`oc-skills`, `oc-sandbox`, `oc-worktree`,
+`oc-pr-monitor`), the five commands, and CI config verification plus plugin
+tests. Remaining: the opencode-server work (tickets 09–10, in that repo) and the
+recorded end-to-end runs (ticket 12, with Robin). Work is tracked locally in
+`.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until the GitHub tracker
+is switched on.
 
 ## Development
 

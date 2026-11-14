@@ -4,7 +4,7 @@
 
 **Blocked by:** 08, 10, 11
 
-**Status:** ready-for-agent
+**Status:** docs done (2026-11-14); the recorded runs on both backends, the cost/time notes and the v2.0.0 tag are pending Robin (also tickets 09/10 in the opencode-server repo)
 
 - [ ] Both runs finish with every slice merged, `ci-ok` green and the PRD closed
 - [ ] The cross-stack slice landed as one PR with a regenerated client and E2E

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Robin's user-level OpenCode 2.x configuration. Plugins are TypeScript, built on @opencode/plugin.",
+  "description": "Roborew user-level OpenCode 2.x configuration. Plugins are TypeScript, built on @opencode/plugin.",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

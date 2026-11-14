@@ -27,12 +27,23 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
 
 ## Reading results
 
-- `sandbox_test` returns `{ exit_code, passed, sha, tail }` — `tail` is the last
-  200 lines with secrets redacted. Read the tail before deciding anything.
+- `sandbox_test` returns GREEN/RED with the exit code, the commit SHA it recorded
+  evidence against, and the last 200 lines of output with secrets redacted.
+  Read the tail before deciding anything.
+- `sandbox_up` builds the contract's images and brings the dev-profile
+  dependencies up healthy (the warm-up), so the first RED run isn't a cold build.
+- `sandbox_gate` runs every test service in the contract's `services` map
+  (except e2e/smoke), regenerates the client through the `generator_service`
+  and diffs the generated globs, then brings up the full profile (production
+  images) and runs the smoke service.
+- `redgreen_check` classifies each commit `main..HEAD` by its changed files
+  (`test_globs` vs `contract.generated`): a test-only commit needs a failing
+  record, the following code commit needs a passing one, and a code commit
+  with no preceding test-only commit is a violation. Generated commits count
+  as neither.
 - On failure, follow debugging-and-error-recovery; after three failed attempts
   on the same criterion, stop as BLOCKED and comment on the slice issue.
-- Test-path globs for `redgreen_check` come from the repo's `AGENTS.md` front
-  matter (`test_globs`).
+- Test-path globs come from the repo's `AGENTS.md` front matter (`test_globs`).
 
 Never run `docker`, `sandbox` or `just` test commands directly — they are denied
 for good reason: raw runs are not isolated and leave no evidence.

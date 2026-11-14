@@ -206,8 +206,10 @@ Also vendor addy's `references/` folder, because some skills point into it. `UPS
 Skills load in three layers, from strongest to weakest:
 
 1. **Command templates** name skills with `@skill-id` (confirmed inside command templates, ADR 0009). In a freshly created worktree session the mention attach can race location boot, so the base skills are _also_ added by layer 2.
-2. **The `oc-skills` plugin** registers `ctx.session.hook("prompt", …)`. The 2.0 prompt hook gets a mutable draft whose `prompt.skills` can be extended ([server plugin docs](https://opencode.ai/docs/build/plugins/server/)). Commands submitted through `session.prompt` run the hook. Rules:
-   - If the prompt starts with `/build #N` and the session is in a slice worktree, read the slice record that `oc-worktree` saved at `slice_start` (labels included) and add the base skills plus the area skills from the table below.
+2. **The `oc-skills` plugin** registers `ctx.session.hook("prompt", …)`. The 2.0 prompt hook gets a mutable draft whose `prompt.skills` can be extended ([server plugin docs](https://opencode.ai/docs/build/plugins/server/)). Commands submitted through `session.prompt` run the hook. Two runtime refinements (confirmed in ticket 05):
+   - Worktree sessions share the canonical checkout's plugin registry, and `ctx.location` is the plugin _instance's_ location — so the hook resolves the session's own directory from its `sessionID` (`ctx.session.get`) before reading the slice record.
+   - A skill ID that the registry never had fails admission ("Skill not found"), so oc-skills also _registers_ each app's `apps/<app>/.agents/skills/` as real skills (`ctx.skill.transform`, from the project's canonical checkout at boot and lazily from a slice worktree for skills the slice adds) and appends `skill: allow` rules for those dynamic IDs to the plan/build permission lists (`ctx.agent.transform`) — static allow-lists can't know repo-specific skill IDs.
+   - The trigger: any prompt admitted in a session whose directory is a slice worktree (an `oc-slice.json` record in the worktree's git directory, written by `oc-worktree` at `slice_start`). It adds the base skills plus the area skills from the table below.
    - Otherwise do nothing. The command templates already cover `/spec` and `/plan`.
 3. **The global `AGENTS.md`** carries the same table, so the model knows which skill applies when work comes outside a command.
 

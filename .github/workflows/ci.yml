@@ -58,8 +58,13 @@ jobs:
 
           // 1. opencode.jsonc parses and validates against the live schema
           let config
+          const parseErrors = []
           try {
-            config = parse(readFileSync("opencode.jsonc", "utf8"))
+            config = parse(readFileSync("opencode.jsonc", "utf8"), parseErrors)
+            if (parseErrors.length > 0) {
+              fail(`opencode.jsonc is malformed: ${parseErrors.map((e) => (e.error ?? e.message ?? "syntax error") + " (offset " + e.offset + ")").join("; ")}`)
+              process.exit(1)
+            }
           } catch (e) {
             fail(`opencode.jsonc does not parse: ${e.message}`)
             process.exit(1)
@@ -157,6 +162,24 @@ jobs:
           done
           if [ "$bad" -ne 0 ]; then exit 1; fi
           echo "ok: every skills/addy/ commit carries an Addy-Sync trailer"
+
+  plugin-tests:
+    name: Plugin tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: package.json
+      - name: Run the plugin tool tests (temp git repos at test time; real Docker on the runner)
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
 
   gitleaks:
     name: Secret scan (gitleaks)

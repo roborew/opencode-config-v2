@@ -1,0 +1,370 @@
+import { Plugin } from "@opencode/plugin"
+import { execSync, spawn } from "node:child_process"
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import {
+  type Backend,
+  type CommitInfo,
+  type EvidenceRecord,
+  type Sidecar,
+  type TestContract,
+  buildDownArgv,
+  buildTestArgv,
+  buildWarmArgv,
+  envSecrets,
+  parseTestContract,
+  readFrontMatter,
+  redactTail,
+  redgreenCheck,
+  sandboxId,
+  selectBackend,
+} from "./lib"
+
+/**
+ * oc-sandbox — namespace "sandbox": sandbox_up, sandbox_test, sandbox_gate,
+ * redgreen_check, sandbox_down (blueprint §7.2). Every run is fully isolated
+ * in Docker, built from the repo's own Dockerfiles and its single compose.yml,
+ * with a per-slice project name and no published ports. Evidence is recorded
+ * against the commit SHA and read back by redgreen_check.
+ *
+ * Worktree sessions share the canonical checkout's plugin registry, and
+ * ctx.location is the plugin instance's location — NOT the session's — so
+ * every tool call resolves the session's own working directory (the slice
+ * worktree) from its sessionID before doing anything.
+ */
+
+interface SandboxState {
+  id: string
+  backend: Backend
+  sidecar?: Sidecar
+  createdAt: number
+}
+
+/** Runs argv: through the sidecar on sysbox, as a local child process on docker. */
+async function runArgv(
+  state: Pick<SandboxState, "backend" | "id" | "sidecar">,
+  argv: string[],
+  cwd: string,
+  timeoutMs = 15 * 60_000,
+): Promise<{ exitCode: number; output: string }> {
+  if (state.backend === "sysbox" && state.sidecar) {
+    const res = await fetch(`${state.sidecar.url.replace(/\/$/, "")}/v1/sandboxes/${state.id}/exec`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${state.sidecar.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ argv, timeoutMs }),
+    })
+    if (!res.ok) throw new Error(`sidecar exec failed (${res.status}): ${await res.text()}`)
+    const json = (await res.json()) as { exit_code: number; stdout_tail: string; stderr_tail: string }
+    return { exitCode: json.exit_code, output: `${json.stdout_tail}\n${json.stderr_tail}` }
+  }
+  return await new Promise((resolve, reject) => {
+    const child = spawn(argv[0], argv.slice(1), { cwd, stdio: ["ignore", "pipe", "pipe"] })
+    let out = ""
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs)
+    child.stdout.on("data", (d) => (out += d))
+    child.stderr.on("data", (d) => (out += d))
+    child.on("error", (e) => {
+      clearTimeout(timer)
+      reject(e)
+    })
+    child.on("close", (code) => {
+      clearTimeout(timer)
+      resolve({ exitCode: code ?? 1, output: out })
+    })
+  })
+}
+
+export default Plugin.define({
+  id: "oc-sandbox",
+  async setup(ctx) {
+    console.log(
+      `[oc-sandbox] active (registry location: ${ctx.location.directory}; tools: sandbox_up, sandbox_test, sandbox_gate, redgreen_check, sandbox_down)`,
+    )
+
+    /** The session's own working directory — a slice worktree for slice sessions. */
+    const sessionDir = async (sessionID?: string): Promise<string> => {
+      if (sessionID) {
+        try {
+          const session: any = await ctx.session.get({ sessionID })
+          if (session?.location?.directory) return session.location.directory
+        } catch { }
+      }
+      return ctx.location.directory
+    }
+
+    const gitIn = (worktree: string, args: string): string => {
+      try {
+        return execSync(`git ${args}`, {
+          cwd: worktree,
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 10_000,
+        })
+          .toString()
+          .trim()
+      } catch {
+        return ""
+      }
+    }
+
+    /** The slice key: the issue number when in a slice worktree, else a stable local key. */
+    const sliceKeyOf = (worktree: string): string => {
+      const gitDir = gitIn(worktree, "rev-parse --git-dir")
+      if (!gitDir) return "local"
+      const recordPath = gitDir.startsWith("/")
+        ? join(gitDir, "oc-slice.json")
+        : join(worktree, gitDir, "oc-slice.json")
+      try {
+        if (existsSync(recordPath)) {
+          const record = JSON.parse(readFileSync(recordPath, "utf8")) as { issue?: number }
+          return String(record.issue ?? "0")
+        }
+      } catch { }
+      return "local"
+    }
+
+    const recordEvidence = async (record: EvidenceRecord) => {
+      await ctx.storage.set(`evidence/${record.sha}/${Date.now()}`, record)
+    }
+
+    const evidenceBySha = async (): Promise<Map<string, EvidenceRecord[]>> => {
+      const map = new Map<string, EvidenceRecord[]>()
+      let after: string | undefined
+      do {
+        const page = await ctx.storage.scan({ prefix: "evidence/", after, limit: 500 })
+        for (const entry of page.entries) {
+          const rec = entry.value as unknown as EvidenceRecord
+          if (!rec?.sha) continue
+          const list = map.get(rec.sha) ?? []
+          list.push(rec)
+          map.set(rec.sha, list)
+        }
+        after = page.next
+      } while (after)
+      return map
+    }
+
+    const ensureUp = async (
+      worktree: string,
+    ): Promise<{ ok: true; state: SandboxState } | { ok: false; blocked: string }> => {
+      const sliceKey = sliceKeyOf(worktree)
+      const id = sandboxId(sliceKey, worktree)
+      const stateKey = `sandboxes/${sliceKey}`
+      const existing = (await ctx.storage.get(stateKey)) as SandboxState | undefined
+      if (existing) return { ok: true, state: existing }
+
+      const contract = parseTestContract(readFrontMatter(worktree))
+      if (!existsSync(join(worktree, contract.composeFile))) {
+        return { ok: false, blocked: `no ${contract.composeFile} in ${worktree} — the repo's test contract is missing` }
+      }
+      const choice = await selectBackend(ctx.options as Record<string, string | undefined>, process.env)
+      if ("blocked" in choice) return { ok: false, blocked: choice.blocked }
+      const state: SandboxState = { id, backend: choice.backend, sidecar: choice.sidecar, createdAt: Date.now() }
+
+      if (choice.backend === "sysbox" && choice.sidecar) {
+        const res = await fetch(`${choice.sidecar.url.replace(/\/$/, "")}/v1/sandboxes`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${choice.sidecar.token}`, "content-type": "application/json" },
+          body: JSON.stringify({ id, worktree }),
+        })
+        if (!res.ok) return { ok: false, blocked: `sidecar refused to create sandbox ${id} (${res.status})` }
+      }
+
+      const warm = buildWarmArgv(contract, id)
+      const secrets = envSecrets(worktree)
+      const build = await runArgv(state, warm.build, worktree, 30 * 60_000)
+      if (build.exitCode !== 0) return { ok: false, blocked: `compose build failed:\n${redactTail(build.output, 50, secrets)}` }
+      const up = await runArgv(state, warm.up, worktree, 10 * 60_000)
+      if (up.exitCode !== 0) return { ok: false, blocked: `sandbox warm-up failed:\n${redactTail(up.output, 50, secrets)}` }
+      await ctx.storage.set(stateKey, state)
+      return { ok: true, state }
+    }
+
+    const tearDown = async (worktree: string): Promise<string> => {
+      const sliceKey = sliceKeyOf(worktree)
+      const stateKey = `sandboxes/${sliceKey}`
+      const state = (await ctx.storage.get(stateKey)) as SandboxState | undefined
+      if (!state) return "sandbox down: nothing to tear down"
+      try {
+        await runArgv(state, buildDownArgv(parseTestContract(readFrontMatter(worktree)), state.id), worktree, 5 * 60_000)
+      } finally {
+        if (state.backend === "sysbox" && state.sidecar) {
+          await fetch(`${state.sidecar.url.replace(/\/$/, "")}/v1/sandboxes/${state.id}`, {
+            method: "DELETE",
+            headers: { authorization: `Bearer ${state.sidecar.token}` },
+          }).catch(() => { })
+        }
+        await ctx.storage.remove(stateKey)
+      }
+      return `sandbox down: ${state.id} (volumes removed)`
+    }
+
+    await ctx.tool.transform((editor) => {
+      editor.namespace({ name: "sandbox", description: "Isolated test runs for the current slice (blueprint §7.2)" })
+
+      const tool = (
+        name: string,
+        description: string,
+        properties: Record<string, unknown>,
+        execute: (input: any, context: any) => Promise<{ content: string }>,
+      ) => {
+        editor.add({
+          name,
+          description,
+          input: { type: "object", properties, additionalProperties: false },
+          options: { namespace: "sandbox", codemode: true },
+          execute,
+        } as any)
+      }
+
+      tool(
+        "up",
+        "Create and warm the slice's isolated sandbox: build the contract's images and bring dependencies up healthy.",
+        { slice: { type: "string", description: "slice identifier (issue number)" } },
+        async (_input, context) => {
+          const wt = await sessionDir(context.sessionID)
+          const up = await ensureUp(wt)
+          if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          return { content: `sandbox up: backend=${up.state.backend} id=${up.state.id} (images built, dependencies warm)` }
+        },
+      )
+
+      tool(
+        "test",
+        "Run one test service from the contract in the isolated sandbox, with optional focused args. Records red/green evidence against the commit SHA. RED (failing) on a test-only commit, GREEN (passing) on the code commit.",
+        {
+          slice: { type: "string" },
+          service: { type: "string", description: "test service from AGENTS.md test.services (default: the full suite)" },
+          args: { type: "array", items: { type: "string" }, description: "focused args, e.g. one test file" },
+        },
+        async (input: { slice: string; service?: string; args?: string[] }, context) => {
+          const wt = await sessionDir(context.sessionID)
+          const up = await ensureUp(wt)
+          if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          const contract = parseTestContract(readFrontMatter(wt))
+          const service = input.service ?? contract.services.all ?? "test"
+          const argv = buildTestArgv(contract, up.state.id, service, input.args ?? [])
+          const run = await runArgv(up.state, argv, wt)
+          const sha = gitIn(wt, "rev-parse HEAD")
+          const passed = run.exitCode === 0
+          await recordEvidence({ sha, service, args: input.args ?? [], passed, exitCode: run.exitCode, at: Date.now() })
+          return {
+            content:
+              `${passed ? "GREEN" : "RED"}: ${service} exit_code=${run.exitCode} sha=${sha.slice(0, 12)}\n` +
+              redactTail(run.output, 200, envSecrets(wt)),
+          }
+        },
+      )
+
+      tool(
+        "gate",
+        "The full pre-PR run: every test service in the contract, the client drift check and the production-image smoke check, all isolated.",
+        { slice: { type: "string" } },
+        async (_input, context) => {
+          const wt = await sessionDir(context.sessionID)
+          const up = await ensureUp(wt)
+          if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          const contract = parseTestContract(readFrontMatter(wt))
+          const steps: { step: string; passed: boolean; detail?: string }[] = []
+          const secrets = envSecrets(wt)
+
+          for (const [key, service] of Object.entries(contract.services)) {
+            if (key === "e2e" || key === "smoke") continue
+            const run = await runArgv(up.state, buildTestArgv(contract, up.state.id, service, []), wt)
+            await recordEvidence({
+              sha: gitIn(wt, "rev-parse HEAD"),
+              service,
+              args: [],
+              passed: run.exitCode === 0,
+              exitCode: run.exitCode,
+              at: Date.now(),
+            })
+            steps.push({ step: `test service ${service}`, passed: run.exitCode === 0, detail: redactTail(run.output, 20, secrets) })
+          }
+
+          if (contract.generatorService) {
+            const gen = await runArgv(
+              up.state,
+              buildTestArgv(contract, up.state.id, contract.generatorService, []),
+              wt,
+              20 * 60_000,
+            )
+            if (gen.exitCode !== 0) {
+              steps.push({ step: "client regeneration", passed: false, detail: redactTail(gen.output, 20) })
+            } else {
+              const globs = contract.generatedGlobs.map((g) => g.replace(/^\.\//, "")).filter(Boolean)
+              const drift = await runArgv(
+                up.state,
+                ["git", "diff", "--exit-code", "--", ...(globs.length ? globs : ["."])],
+                wt,
+                60_000,
+              )
+              steps.push({
+                step: "client drift check",
+                passed: drift.exitCode === 0,
+                detail: drift.exitCode === 0 ? undefined : "regenerated client differs from the committed one — regenerate and commit it",
+              })
+            }
+          }
+
+          const smokeService = contract.services.smoke
+          if (smokeService) {
+            const full = contract.fullCommand
+              .replace("docker compose", `docker compose -p ${up.state.id}`)
+              .split(/\s+/)
+              .filter(Boolean)
+            const fullRun = await runArgv(up.state, full, wt, 10 * 60_000)
+            steps.push({ step: "full profile up (production images)", passed: fullRun.exitCode === 0, detail: redactTail(fullRun.output, 10) })
+            if (fullRun.exitCode === 0) {
+              const run = await runArgv(up.state, buildTestArgv(contract, up.state.id, smokeService, []), wt, 10 * 60_000)
+              steps.push({ step: `smoke check (${smokeService})`, passed: run.exitCode === 0, detail: redactTail(run.output, 20) })
+            }
+          }
+
+          const passed = steps.every((s) => s.passed)
+          const report = steps.map((s) => `  ${s.passed ? "✓" : "✗"} ${s.step}${s.detail ? ` — ${s.detail}` : ""}`).join("\n")
+          return { content: `sandbox_gate ${passed ? "PASSED" : "FAILED"}:\n${report}` }
+        },
+      )
+
+      tool(
+        "redgreen_check",
+        "Verify the red/green discipline: every test-only commit has a failing evidence record, and the following code commit a passing one. Generated client files count as neither.",
+        { slice: { type: "string" } },
+        async (_input, context) => {
+          const wt = await sessionDir(context.sessionID)
+          const contract = parseTestContract(readFrontMatter(wt))
+          const log = gitIn(wt, 'log --no-merges --format="%H%x1f%s" main..HEAD')
+          if (!log) return { content: "no commits on this slice yet" }
+          const commits: CommitInfo[] = log
+            .split("\n")
+            .filter(Boolean)
+            .reverse()
+            .map((line) => {
+              const [sha, subject] = line.split("\x1f")
+              const files = gitIn(wt, `diff-tree --no-commit-id --name-only -r ${sha}`).split("\n").filter(Boolean)
+              return { sha, subject, files }
+            })
+          const result = redgreenCheck(commits, contract, await evidenceBySha())
+          if (result.ok) return { content: `redgreen_check OK (${commits.length} commits checked)` }
+          return {
+            content:
+              "redgreen_check VIOLATIONS:\n" +
+              result.violations.map((v) => `  ${v.sha.slice(0, 12)} [${v.kind}] ${v.detail}`).join("\n"),
+          }
+        },
+      )
+
+      tool(
+        "down",
+        "Tear down the slice's sandbox: the Compose project with its volumes, and the sysbox box if any.",
+        { slice: { type: "string" } },
+        async (_input, context) => {
+          const wt = await sessionDir(context.sessionID)
+          return { content: await tearDown(wt) }
+        },
+      )
+    })
+
+    return () => { }
+  },
+})

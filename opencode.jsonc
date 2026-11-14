@@ -419,10 +419,21 @@
     "title": {
       "model": "opencode-go/gpt-6-luna"
     }
-    // Plugins are added by their tickets, with `package` paths resolving against this
-    // config file's directory (ADR 0009), so they read "./plugins/<name>":
-    //   oc-skills + oc-sandbox  (ticket 05)  — guaranteed skill loading, isolated tests
-    //   oc-worktree             (ticket 06)  — slice worktrees and sessions
-    //   oc-pr-monitor           (ticket 08)  — zero-token PR wait loop
-  }
+  },
+  "plugins": [
+    {
+      "package": "./plugins/oc-skills"
+    },
+    {
+      "package": "./plugins/oc-sandbox",
+      "options": {
+        "backend": "{env:OC_SANDBOX_BACKEND}",
+        "sidecarUrl": "{env:OC_SANDBOX_URL}",
+        "sidecarToken": "{env:OC_SANDBOX_TOKEN}"
+      }
+    }
+    // Remaining plugins land with their tickets: oc-worktree (06),
+    // oc-pr-monitor (08). `package` paths resolve against this config
+    // file's directory (ADR 0009).
+  ]
 }

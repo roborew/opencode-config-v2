@@ -1,0 +1,439 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // opencode-config-v2 — Robin's user-level OpenCode 2.x configuration.
+  // The repo IS the config directory: on the Mac it is cloned to ~/.config/opencode,
+  // on the server the opencode-server image clones it at CONFIG_REF.
+  //
+  // Two primary modes override OpenCode's built-in agents by ID (D22):
+  //   plan  = Define + Plan   (Claude Opus 5.5, Zen)
+  //   build = Build → Verify → Review → Ship (DeepSeek V4.1 Flash, Go)
+  // Models come from OpenCode Zen (opencode) and OpenCode Go (opencode-go) only (D7, D27).
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "default_agent": "build",
+  // Provider lock (D27): deny every provider, then allow Zen and Go.
+  // Force-push and push-to-main are hard-denied here as well as in the agent
+  // permissions — no session can override these.
+  "policies": [
+    {
+      "action": "provider.use",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "provider.use",
+      "resource": "opencode",
+      "effect": "allow"
+    },
+    {
+      "action": "provider.use",
+      "resource": "opencode-go",
+      "effect": "allow"
+    },
+    {
+      "action": "tool.use",
+      "resource": "shell:git push --force*",
+      "effect": "deny"
+    },
+    {
+      "action": "tool.use",
+      "resource": "shell:git push * main",
+      "effect": "deny"
+    }
+  ],
+  // No `skills` array on purpose (ADR 0009): skills/addy/* and skills/oc/* are found
+  // by auto-discovery of this config directory's `skills/` folder. Relative `skills`
+  // entries resolve from the working directory (not this file), and globs are not
+  // supported — per-app skills are added by the oc-skills prompt hook instead.
+  "worktree": {
+    "directory": "~/.opencode-worktrees"
+  },
+  "agents": {
+    "plan": {
+      "model": "opencode/claude-opus-5-5",
+      "system": "You are the planning half of a two-mode delivery flow (Define → Plan). The build mode does the rest.\n\nAlways follow the loaded skill's process. Never skip its interview or approval steps. When a skill says to wait for approval, you wait.\n\nOutput contract: the spec goes to docs/spec/<slug>.md in the app repo (never a SPEC.md at the root), decisions go to docs/decisions/, and the PRD umbrella issue is created through oc-github. Read the app repo's AGENTS.md front matter for its apps and stacks before planning.\n\nSlices are vertical: each cuts through every layer it needs (migration → API → generated client → web → E2E) in one slice, is independently mergeable to main, and fits one fresh context. A user-facing change is never split into a backend PR and a frontend PR. Each slice issue carries an area:<app> label per app it touches (plus area:db / area:infra where relevant), a blocked-by list, a flag or branch-by-abstraction plan, and acceptance criteria. Schema changes are planned as expand/contract; every flag gets a flag-removal slice.\n\nThere are two approval checkpoints with Robin: after the spec is written, and before any slice issue is created. Hedged answers (\"looks fine\", \"maybe\") are not approval; only an unambiguous yes is.\n\nDelegate read-only repo research to the explore and general subagents. You never write app code.",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "docs/spec/**",
+          "effect": "allow"
+        },
+        {
+          "action": "edit",
+          "resource": "docs/decisions/**",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "shell",
+          "resource": "gh issue *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "gh api *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git status*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git log*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git diff*",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "skill",
+          "resource": "interview-me",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "idea-refine",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "spec-driven-development",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "constraint-driven-development",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "api-and-interface-design",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "source-driven-development",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "planning-and-task-breakdown",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "documentation-and-adrs",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "using-agent-skills",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "oc-github",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "explore",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "general",
+          "effect": "allow"
+        }
+      ]
+    },
+    "build": {
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "system": "You are the build half of the delivery flow (Build → Verify → Review → Ship). Specs and slices come from plan; never invent requirements. If a slice is ambiguous or won't converge after three focused attempts, stop as BLOCKED, post a short reason on the slice issue, and go idle.\n\nIn the main checkout, /build only coordinates: call slice_start for unblocked slices (up to the slot limit), then report slice_status. Never implement in the main checkout.\n\nIn a slice worktree, work the slice in vertical order: migration (expand) → API → regenerate the client through the contract's generator service (commit it; never hand-edit it) → web → E2E. For each acceptance criterion follow the RED/GREEN loop: write the failing test, commit it test-only, run it through sandbox_test (it must fail — RED), then write the minimum code, commit, and re-run (it must pass — GREEN). Every test run goes through the oc-sandbox tools in the isolated Docker setup — never on the host, never through raw docker or just.\n\nNever edit, weaken, delete or skip a test to make it pass. Never hand-edit generated client code. Never print .env values.\n\nWhen the slice is green: run the code-reviewer subagent (and security-auditor when the slice has risk:security or touches auth, secrets, migrations, dependency manifests or infra), fix or answer every finding, run sandbox_gate and redgreen_check, push, open the PR through oc-github, and hand over to oc-pr-monitor. Robin merges; you never merge.",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "shell",
+          "resource": "git add*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git commit*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git status*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git diff*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git log*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git fetch*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git push -u origin slice/*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "gh pr *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "gh issue comment*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "docker*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "sandbox*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "just import-env*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "just deploy*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "deploy*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git push --force*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git push * main*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git reset --hard*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rm -rf /*",
+          "effect": "deny"
+        },
+        {
+          "action": "skill",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "skill",
+          "resource": "incremental-implementation",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "test-driven-development",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "context-engineering",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "source-driven-development",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "doubt-driven-development",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "frontend-ui-engineering",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "api-and-interface-design",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "browser-testing-with-devtools",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "debugging-and-error-recovery",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "code-review-and-quality",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "code-simplification",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "security-and-hardening",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "performance-optimization",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "git-workflow-and-versioning",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "ci-cd-and-automation",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "deprecation-and-migration",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "documentation-and-adrs",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "observability-and-instrumentation",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "oc-worktree",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "oc-sandbox",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "oc-github",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "oc-pr-monitor",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "code-reviewer",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "security-auditor",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "explore",
+          "effect": "allow"
+        }
+      ]
+    },
+    "explore": {
+      "model": "opencode-go/glm-5.3"
+    },
+    "general": {
+      "model": "opencode-go/glm-5.3"
+    },
+    "title": {
+      "model": "opencode-go/gpt-6-luna"
+    }
+  },
+  "plugins": [
+    {
+      "package": "./plugins/oc-skills"
+    },
+    {
+      "package": "./plugins/oc-sandbox",
+      "options": {
+        "backend": "{env:OC_SANDBOX_BACKEND}",
+        "sidecarUrl": "{env:OC_SANDBOX_URL}",
+        "sidecarToken": "{env:OC_SANDBOX_TOKEN}"
+      }
+    }
+    // Remaining plugins land with their tickets: oc-worktree (06),
+    // oc-pr-monitor (08). `package` paths resolve against this config
+    // file's directory (ADR 0009).
+  ]
+}

@@ -4,13 +4,13 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** implementation done (2026-11-14); live `/build #N` run on one of Robin's real app repos pending (needs model auth)
 
-- [ ] Backend auto-detects local Docker, and `OC_SANDBOX_BACKEND` overrides it
-- [ ] No test runs on the host: every run goes through Compose with a per-slice project and no published ports
-- [ ] Red/green runs use focused test-service args and are recorded against each SHA
-- [ ] `redgreen_check` flags a code commit with no preceding failing test-only commit, and ignores generated client files
-- [ ] `area:api` and `area:web` load the mapped skills and each app's `.agents/skills/`
-- [ ] `sandbox_gate` fails on client drift and on a failing image smoke check
-- [ ] A slice that can't pass stops as BLOCKED with a reason comment
-- [ ] Plugin tests for `oc-sandbox` and `oc-skills` run in CI
+- [x] Backend auto-detects local Docker, and `OC_SANDBOX_BACKEND` overrides it — unit-tested (auto/override/blocked paths)
+- [x] No test runs on the host: every run goes through Compose with a per-slice project and no published ports — integration-tested against a real Docker daemon, including two projects side by side
+- [x] Red/green runs use focused test-service args and are recorded against each SHA — implemented (evidence keyed by commit SHA in plugin storage); live agent usage pending
+- [x] `redgreen_check` flags a code commit with no preceding failing test-only commit, and ignores generated client files — unit-tested for all violation kinds
+- [x] `area:api` and `area:web` load the mapped skills and each app's `.agents/skills/` — runtime-verified live on an isolated OpenCode 2.3.0 server (base + front-matter + per-app skills added to prompt.skills; per-app skills registered and permission-allowed dynamically)
+- [x] `sandbox_gate` fails on client drift and on a failing image smoke check — implemented (generator run + `git diff --exit-code` on the generated globs; full-profile up + smoke service); live gate run on a real app repo pending
+- [x] A slice that can't pass stops as BLOCKED with a reason comment — enforced by the build agent system prompt and the `/build` command steps; live run pending
+- [x] Plugin tests for `oc-sandbox` and `oc-skills` run in CI — 27 tests (temp git repos at test time, real Docker integration) + the plugin-tests CI job

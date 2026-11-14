@@ -438,8 +438,13 @@
         "maxParallel": 3,
         "worktreeRoot": "~/.opencode-worktrees"
       }
+    },
+    {
+      "package": "./plugins/oc-pr-monitor",
+      "options": {
+        "intervalMs": 120000,
+        "maxRounds": 5
+      }
     }
-    // Remaining plugin lands with its ticket: oc-pr-monitor (08).
-    // `package` paths resolve against this config file's directory (ADR 0009).
   ]
 }

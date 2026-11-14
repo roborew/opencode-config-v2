@@ -4,7 +4,7 @@
 
 **Blocked by:** 06, 07
 
-**Status:** ready-for-agent
+**Status:** implementation done (2026-11-14); live PR loop pending (needs a real PR + Robin)
 
 - [ ] No model calls happen between wakes
 - [ ] A wake lists only new unresolved threads and failed checks

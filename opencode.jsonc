@@ -431,9 +431,15 @@
         "sidecarUrl": "{env:OC_SANDBOX_URL}",
         "sidecarToken": "{env:OC_SANDBOX_TOKEN}"
       }
+    },
+    {
+      "package": "./plugins/oc-worktree",
+      "options": {
+        "maxParallel": 3,
+        "worktreeRoot": "~/.opencode-worktrees"
+      }
     }
-    // Remaining plugins land with their tickets: oc-worktree (06),
-    // oc-pr-monitor (08). `package` paths resolve against this config
-    // file's directory (ADR 0009).
+    // Remaining plugin lands with its ticket: oc-pr-monitor (08).
+    // `package` paths resolve against this config file's directory (ADR 0009).
   ]
 }

@@ -4,7 +4,7 @@
 
 **Blocked by:** 04, 05
 
-**Status:** ready-for-agent
+**Status:** implementation done (2026-11-14); live fan-out on an app repo pending (needs model auth + gh against a real repo)
 
 - [ ] Branches and worktrees are named `slice/<N>-<slug>` and sessions are titled `#N <title>`
 - [ ] Three slices run their full test contract at the same time with no clashes

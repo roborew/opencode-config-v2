@@ -10,4 +10,4 @@
 - [ ] The sidecar rejects other runtimes, images, privileged flags, mounts outside the worktree root, and any argv off the allow-list
 - [ ] Nothing app-specific is installed on the server or in the box image
 - [ ] Auth is a bearer token that Robin enters himself
-- [ ] The fixture's `sandbox_gate` passes inside a Sysbox container
+- [ ] An app repo's `sandbox_gate` passes inside a Sysbox container

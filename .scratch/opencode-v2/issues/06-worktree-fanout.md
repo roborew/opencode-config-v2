@@ -1,6 +1,6 @@
 # 06 — oc-worktree: /build in the main checkout fans out slice worktrees and sessions
 
-**What to build:** Following blueprint §7.1: `oc-worktree` and its skill, and the coordinator part of `/build`. In the fixture's main checkout, `/build` starts up to 3 unblocked slices. Each gets a worktree off `origin/main`, copied `.env` files (for Robin's use only), a slice record, and a visible session already running `/build #N`.
+**What to build:** Following blueprint §7.1: `oc-worktree` and its skill, and the coordinator part of `/build`. In an app repo's main checkout, `/build` starts up to 3 unblocked slices. Each gets a worktree off `origin/main`, copied `.env` files (for Robin's use only), a slice record, and a visible session already running `/build #N`.
 
 **Blocked by:** 04, 05
 

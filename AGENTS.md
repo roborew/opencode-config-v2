@@ -21,9 +21,9 @@ are an agent working here, read this first and follow it.
   `docs/plan/README.md`: `spec.md` → `blueprint.md` → `commands.md` →
   `decisions.md` → `docs/CONTEXT.md` and `docs/adr/` → the tickets.
 - Work is tracked as the local tickets in `.scratch/opencode-v2/issues/`
-  (00–12), in dependency order (the build order in `docs/plan/README.md`).
-  Each ticket names its blockers. Do exactly one ticket per session, and stop
-  where the ticket says to stop.
+  (00–12, with no 03), in dependency order (the build order in
+  `docs/plan/README.md`). Each ticket names its blockers. Do exactly one ticket
+  per session, and stop where the ticket says to stop.
 - Anything in the blueprint marked **[spike]** is documented but not yet run;
   ticket 01 settles each one. Don't build on a spike until its result is
   recorded.

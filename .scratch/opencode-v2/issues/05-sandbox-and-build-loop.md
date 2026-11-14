@@ -1,8 +1,8 @@
 # 05 — oc-sandbox (docker backend), oc-skills hook and the /build #N loop in one checkout
 
-**What to build:** Following blueprint §4.2, §6, §7.2, §7.4 and §9.3: `oc-sandbox` with the docker backend, evidence, `sandbox_gate` and `redgreen_check`; the `oc-skills` hook (including per-app `.agents/skills/`); the slice part of `/build`; and the `oc-sandbox` skill. On the Mac, `/build #N` on a fixture slice that touches API and web runs in vertical order: API RED → GREEN → regenerate client → web RED → GREEN → E2E → `sandbox_gate`. Every run happens in the isolated Compose project.
+**What to build:** Following blueprint §4.2, §6, §7.2, §7.4 and §9.3: `oc-sandbox` with the docker backend, evidence, `sandbox_gate` and `redgreen_check`; the `oc-skills` hook (including per-app `.agents/skills/`); the slice part of `/build`; and the `oc-sandbox` skill. On the Mac, `/build #N` on a slice that touches API and web, in one of Robin's real app repos (chosen at the time; nothing is committed to this config), runs in vertical order: API RED → GREEN → regenerate client → web RED → GREEN → E2E → `sandbox_gate`. Every run happens in the isolated Compose project.
 
-**Blocked by:** 02, 03
+**Blocked by:** 02
 
 **Status:** ready-for-agent
 

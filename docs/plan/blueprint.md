@@ -1,6 +1,6 @@
 # Blueprint: opencode-config-v2
 
-This is the concrete reference for building the repo from an empty `git init`. The spec (`spec.md`) says what to build and why. This file says what goes where, and gives the exact names, IDs, contracts and templates. Anything marked **[spike]** is taken from the OpenCode docs but not yet run; ticket 01 confirms it, and both files get amended if it fails.
+This is the concrete reference for building the repo from an empty `git init`. The spec (`spec.md`) says what to build and why. This file says what goes where, and gives the exact names, IDs, contracts and templates. Every former **[spike]** item was settled by ticket 01 (ADR 0009); where the docs' first read and reality differed, the text records the confirmed approach.
 
 Pinned inputs (checked 2026-11-14):
 
@@ -19,7 +19,7 @@ This repo **is** the user-level OpenCode config directory.
 - On the Mac: clone it to `~/.config/opencode`. OpenCode then loads `opencode.jsonc`, `agents/`, `commands/`, `skills/` and `plugins/` from there for every project.
 - On the server: the opencode-server image clones it at `CONFIG_REF` into the config directory. Server-only extras are merged from opencode-server's own overrides (see §11).
 
-App repos never hold a copy of this config. Every app repo uses the **monorepo layout and architecture** from Robin's Project Template (`templates/project/TEMPLATE.md`, an example kept verbatim in this repo), plus the test contract and flow additions in §9. Only the template's layout and architecture apply. How tests run is set by this flow (§7.2, §9.2), not by the template.
+App repos never hold a copy of this config. Every app repo uses the **monorepo layout and architecture** from Robin's Project Template (`templates/project/TEMPLATE.md`, an example kept verbatim in this repo), plus the test contract and the app-repo rules in §9. Only the template's layout and architecture apply. How tests run is set by this flow (§7.2, §9.2), not by the template.
 
 ## 2. Repository layout
 
@@ -28,8 +28,8 @@ opencode-config-v2/
 ├── opencode.jsonc                 # providers policy, agents, skills paths, plugins, permissions
 ├── AGENTS.md                      # global instructions: lifecycle + phase→skill table (§6)
 ├── agents/
-│   ├── code-reviewer.md           # addy persona, frontmatter adapted to OpenCode [spike]
-│   └── security-auditor.md        # addy persona, frontmatter adapted to OpenCode [spike]
+│   ├── code-reviewer.md           # addy persona, frontmatter adapted to OpenCode (markdown agents confirmed, ADR 0009)
+│   └── security-auditor.md        # addy persona, frontmatter adapted to OpenCode (markdown agents confirmed, ADR 0009)
 ├── commands/
 │   ├── spec.md  plan.md  build.md  review.md  ship.md
 ├── skills/
@@ -38,7 +38,11 @@ opencode-config-v2/
 │   │   ├── LICENSE                # addy's MIT licence, verbatim
 │   │   └── <skill>/SKILL.md ...   # all 25 skills (§5)
 │   └── oc/
-│       ├── oc-github/SKILL.md
+│       ├── oc-github/
+│       │   ├── SKILL.md
+│       │   └── templates/         # issue/PR bodies + labels, held only here (D33)
+│       │       ├── prd.md  slice.md  pr.md
+│       │       └── labels.json
 │       ├── oc-worktree/SKILL.md
 │       ├── oc-sandbox/SKILL.md
 │       ├── oc-pr-monitor/SKILL.md
@@ -51,15 +55,11 @@ opencode-config-v2/
 │   └── oc-pr-monitor/             # zero-token PR wait loop (§7.3)
 ├── templates/
 │   ├── project/TEMPLATE.md        # Robin's Project Template: example monorepo layout + architecture (verbatim)
-│   └── repo/                      # flow additions scaffolded by repo-setup (§9.3)
-│       ├── AGENTS.md
-│       ├── .github/ISSUE_TEMPLATE/prd.md
-│       ├── .github/ISSUE_TEMPLATE/slice.md
-│       ├── .github/pull_request_template.md
-│       └── labels.json
+│   └── repo/                      # what repo-setup writes into an app repo (§9.3)
+│       ├── AGENTS.md              # front matter skeleton (repo-specific facts only)
+│       └── .github/workflows/ci.yml   # starting point only; the repo owns it after setup
 ├── tests/
-│   ├── fixture-monorepo/          # a minimal monorepo in the template layout: apps/api (FastAPI), apps/web (TanStack Start), packages/api-client, per-app Dockerfiles, Compose test contract
-│   └── plugins/                   # tool-interface tests per plugin
+│   └── plugins/                   # tool-interface tests per plugin; temp git repos are created at test time, and no app code is committed
 ├── docs/
 │   ├── CONTEXT.md                 # glossary
 │   ├── adr/                       # 0001–0008
@@ -67,7 +67,7 @@ opencode-config-v2/
 │   └── runbook.md                 # written in ticket 12
 ├── .scratch/opencode-v2/issues/   # tickets 00–12 (local tracker until published)
 ├── .github/workflows/ci.yml       # config validation, plugin tests, secret scan
-├── package.json                   # @opencode/plugin (runtime dep, resolved by plugins/) + vitest/typescript (dev)
+├── package.json                   # plugin dev deps (@opencode/plugin, test runner) [spike: runtime]
 ├── .gitignore
 ├── LICENSE                        # Robin's choice (default: MIT)
 └── README.md                      # what it is, install on Mac/server, update addy
@@ -283,7 +283,7 @@ Defined in §6. It has no tools, only the prompt hook.
 
 Each is a short `SKILL.md` with `name` and `description` frontmatter. It describes when to use the plugin's tools and what to do with their results, and doesn't re-explain addy's process.
 
-- **oc-github:** PRD and slice issue creation, using the templates in §9. Sets labels and dependencies, using the GitHub sub-issue and "blocked by" relationships (falling back to a "Blocked by" section). Opens the PR with the template and links `Closes #N` and `Part of #PRD`. Closes the PRD when its last slice merges.
+- **oc-github:** PRD and slice issue creation, using its own templates (`skills/oc/oc-github/templates/`, §9.3; never repo templates). It creates missing labels on demand. Sets labels and dependencies, using the GitHub sub-issue and "blocked by" relationships (falling back to a "Blocked by" section). Opens the PR with the template and links `Closes #N` and `Part of #PRD`. Closes the PRD when its last slice merges.
 - **oc-worktree:** when and how to call `slice_*`, and what each state means.
 - **oc-sandbox:** the red/green loop through `sandbox_test`, focused runs vs full runs, and reading `redgreen_check`.
 - **oc-pr-monitor:** handling a wake-up, the fix/reply rules and the round cap.
@@ -323,7 +323,9 @@ This follows the template's §4: the standalone Docker test path.
 - **E2E in Docker (D32).** The test profile has an `e2e` service: the official Playwright image, pinned to the repo's `@playwright/test` version, running against the full-profile production images over the Compose network. This is the agents' only E2E path, and `just e2e` stays Robin's host path.
 - **The flow calls Compose directly (D31).** Commands are declared in `AGENTS.md`, never `just`. An optional `justfile` wraps the same commands for Robin.
 
-### 9.3 Flow additions scaffolded by `repo-setup` (`templates/repo/`)
+### 9.3 What lives in an app repo, and what doesn't (D33)
+
+An app repo only holds **facts about itself**: its code, `compose.yml`, Dockerfiles, CI workflow, `docs/spec|decisions|deployment`, per-app `.agents/skills/`, and the `AGENTS.md` front matter below. **No flow reference material lives in app repos**: no issue templates, PR template, `labels.json` or copies of flow skills. All of that lives in this config, under `skills/oc/oc-github/templates/`. `.github/` keeps only GitHub's own files, and the repo owns them in full: `workflows/` (`ci.yml` as the PR gate, `deploy.yml` with the app's own registry and deploy wiring outside this flow, and any others) and `dependabot.yml`. There's no shared or reusable workflow from the config. `repo-setup` writes a starting `ci.yml` once, and after that the repo maintains it. When `repo-setup` upgrades an existing repo, it proposes deleting the old `.github/ISSUE_TEMPLATE/*`, `pull_request_template.md` and `labels.yml`, and deletes them only after approval.
 
 **Root `AGENTS.md`** front matter:
 
@@ -353,11 +355,11 @@ The body describes each app, the flag convention, and points to `docs/spec/` and
 
 **Vertical slice order inside one PR:** migration (expand) → API test RED → API GREEN → regenerate the client (through the contract's generator service; commit it) → web test RED → web GREEN → E2E for the user flow → `sandbox_gate`. A slice that touches only one app skips the steps it doesn't need.
 
-**Issue templates.** `prd.md` has: Problem, Solution, User stories, Spec link (`docs/spec/…`), Slices (auto-filled), Out of scope. `slice.md` has: Parent PRD, What to build, Acceptance criteria, Apps touched (`area:<app>`), Contract change (yes/no), Flag plan, Blocked by.
+**Issue and PR bodies (config only, `skills/oc/oc-github/templates/`).** `oc-github` fills them in and creates issues and PRs with `gh … --body-file`, so GitHub never needs a repo template. `prd.md` has: Problem, Solution, User stories, Spec link (`docs/spec/…`), Slices (auto-filled), Out of scope. `slice.md` has: Parent PRD, What to build, Acceptance criteria, Apps touched (`area:<app>`), Contract change (yes/no), Flag plan, Blocked by.
 
-**PR template** has: `Closes #N`, `Part of #PRD`, What changed, Contract change and regenerated client, Red/green evidence, `sandbox_gate` result, Review summary, Flag state.
+`pr.md` has: `Closes #N`, `Part of #PRD`, What changed, Contract change and regenerated client, Red/green evidence, `sandbox_gate` result, Review summary, Flag state, and Deploy notes (the migration is expand/contract safe; any new env value has been added to the secrets manager for staging **and** production; docs are updated).
 
-**`labels.json`:** `prd`, `slice`, `area:<app>` for each app, `area:db`, `area:infra`, `area:docs`, `risk:security`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `flag-removal`.
+**`labels.json` (config only):** `oc-github` creates any missing label the first time it needs it (`gh label create --force`, idempotent). `area:<app>` labels come from the `apps:` keys in `AGENTS.md`. This set replaces the older `state:*`, `category:*` and `mode:*` labels and their `labels.yml`. Labels: `prd`, `slice`, `area:<app>` for each app, `area:db`, `area:infra`, `area:docs`, `risk:security`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `flag-removal`.
 
 **CI:** the PR gate runs the same isolated Compose test run. A final aggregate job (`ci-ok`) is the single required check. Image build and deploy workflows are separate and outside this flow.
 
@@ -408,6 +410,7 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 4. Run the plugin tests (`tests/plugins`).
 5. Run gitleaks and zizmor, with pinned action SHAs.
 6. Enforce LF line endings for `*.sh`, `*.ts` and `*.md`.
+7. Check the model allow-list: every model ID referenced in `opencode.jsonc` and `agents/` uses the `opencode` or `opencode-go` provider and matches the roster in §3.
 
 ## 14. Lessons built in from earlier setups
 

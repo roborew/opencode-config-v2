@@ -31,7 +31,7 @@ not by the template.
 Under construction from the plan pack. Start at
 [`docs/plan/README.md`](docs/plan/README.md) for the reading order and the
 build order of the tickets. Work is tracked locally in
-`.scratch/opencode-v2/issues/` (tickets 00–12) until the GitHub tracker is
+`.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until the GitHub tracker is
 switched on. The layout above (agents, commands, skills, plugins) is filled in
 by later tickets; the initial commit holds the plan pack, the Project Template,
 this README and CI.
@@ -47,8 +47,9 @@ skill may change that folder; CI rejects any other change to it.
 The plugins (`plugins/`) are TypeScript, built on
 [`@opencode/plugin`](https://opencode.ai/docs/build/plugins/server/). Plugin
 dev dependencies live in `package.json`; `npm install && npm test`. Plugin
-tests live in `tests/plugins/` and always run fully isolated in Docker, never
-on the host.
+tests live in `tests/plugins/` — small tool-interface tests that create
+temporary git repos at test time. No app code is committed to this repo
+(D34): the flow is accepted by running it on a real app repo.
 
 ## Licence
 

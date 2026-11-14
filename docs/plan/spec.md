@@ -1,7 +1,7 @@
 # Spec: OpenCode v2 delivery flow (opencode-config-v2 + opencode-server)
 
 Status: ready-for-agent. Date: 2026-11-14. Repo: `roborew/opencode-config-v2` (new, empty).
-Companion files: `blueprint.md` (exact layout, IDs, contracts, templates), `decisions.md` (D1–D32), `../CONTEXT.md` (glossary), `../adr/`, and Robin's Project Template at `../../templates/project/TEMPLATE.md` (example monorepo layout and architecture).
+Companion files: `blueprint.md` (exact layout, IDs, contracts, templates), `decisions.md` (D1–D34), `../CONTEXT.md` (glossary), `../adr/`, and Robin's Project Template at `../../templates/project/TEMPLATE.md` (example monorepo layout and architecture).
 
 ## Problem Statement
 
@@ -81,7 +81,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 40. As Robin, I want addy's skills vendored unmodified plus an `addy-sync` skill that pulls upstream changes, so that I get addy's improvements without merge pain.
 41. As Robin, I want my own integration skills (`oc-worktree`, `oc-sandbox`, `oc-github`, `oc-pr-monitor`) kept separate from addy's, so that the boundary between upstream and mine stays obvious.
 42. As Robin, I want the new repo to start from an empty `git init` with no files from earlier config repos, so that there is one way to work and no legacy to maintain.
-43. As Robin, I want a repo setup skill that scaffolds or upgrades an app repo to the monorepo layout and architecture from my Project Template (internals chosen per stack), plus the Compose test contract and flow additions (`AGENTS.md` front matter, issue/PR templates, labels, branch protection on `ci-ok`),
+43. As Robin, I want a repo setup skill that scaffolds or upgrades an app repo to the monorepo layout and architecture from my Project Template (internals chosen per stack), plus the Compose test contract, the `AGENTS.md` front matter, the CI workflow and branch protection on `ci-ok`, with no flow templates copied into the repo,
 44. As Robin, I want server-only behaviour (gitdir rewrite, delete guard, localhost rewrite) to live in opencode-server overrides, so that the config stays universal.
 45. As Robin, I want the server image to clone `opencode-config-v2` and drop the CodeRabbit CLI and preview/tunnel settings, so that the server matches the new flow.
 
@@ -132,8 +132,9 @@ Resolved 2026-11-14 — evidence and consequences in `../adr/0009-spike-results.
 ## Testing Decisions
 
 - Test external behaviour only: what a user or agent observes (issues created, worktree exists, sandbox result, PR state), not internal function calls.
-- **Highest seam (primary):** an end-to-end smoke run against a small fixture monorepo with two apps (one API, one web), in the Project Template layout, with per-app Dockerfiles, a generated client and the Compose test contract. Run `/spec` → `/plan` → `/build` on a tiny feature and assert: PRD and slice issues exist with labels and blockers; one worktree per unblocked slice; a test-only failing commit before each code commit; a cross-stack slice lands as one PR with a regenerated client and E2E; `sandbox_gate` and `ci-ok` green. Run it on both backends (docker on the Mac, sysbox on the server).
-- **Plugin seams:** the tool interfaces of `oc-worktree`, `oc-sandbox` and `oc-pr-monitor`, each tested against a throwaway git repo, a real Docker daemon and a recorded GitHub API fixture.
+- **This repo holds no app code** (D34). Its own checks are config verification only (blueprint §13: schema validation, skill references, addy vendoring, model allow-list, secrets scan) plus small plugin tool tests that create temporary git repos at test time.
+- **Acceptance (manual):** the full flow (`/spec` → `/plan` → `/build` → PR) is checked by running it on one of Robin's real app repos. Nothing from that run is committed here.
+- **Plugin seams:** the tool interfaces of `oc-worktree`, `oc-sandbox` and `oc-pr-monitor`, each tested against a temporary git repo created by the test, a real Docker daemon and a recorded GitHub API fixture.
 - **Server seam:** the sidecar API is tested by checking that allowed calls work and that everything else is rejected (another runtime, another image, raw `docker` passthrough). The OpenCode container must have no Docker socket.
 - **Prior art:** none in this repo; it starts empty. The repo's own CI (blueprint §13) validates the config, checks skill references, checks addy vendoring, runs plugin tests and scans for secrets from the first commit.
 

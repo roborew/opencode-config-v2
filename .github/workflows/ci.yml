@@ -27,6 +27,137 @@ jobs:
             exit 1
           fi
 
+  config-verify:
+    name: Config verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (full history, for the addy-sync trailer check)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: package.json
+      - name: Install verification dependencies
+        run: npm ci
+      # Blueprint §13 items 1, 2 and 7: schema validation, skill references,
+      # model allow-list. (Plugin tests — item 4 — arrive with ticket 05.)
+      - name: Validate opencode.jsonc, skill references and model allow-list
+        run: |
+          set -euo pipefail
+          cat > verify-config.mjs <<'SCRIPT'
+          import { readFileSync, existsSync, readdirSync } from "node:fs"
+          import { parse } from "jsonc-parser"
+          import Ajv2020 from "ajv/dist/2020.js"
+
+          const errors = []
+          const fail = (m) => { errors.push(m); console.error("FAIL: " + m) }
+          const ok = (m) => console.log("ok: " + m)
+
+          // 1. opencode.jsonc parses and validates against the live schema
+          let config
+          try {
+            config = parse(readFileSync("opencode.jsonc", "utf8"))
+          } catch (e) {
+            fail(`opencode.jsonc does not parse: ${e.message}`)
+            process.exit(1)
+          }
+          const ajv = new Ajv2020({ strict: false, allErrors: true })
+          const schema = await (await fetch("https://opencode.ai/config.json")).json()
+          const modelsSchema = await (await fetch("https://models.dev/model-schema.json")).json()
+          ajv.addSchema(modelsSchema)
+          const validate = ajv.compile(schema)
+          if (!validate(config)) fail(`opencode.jsonc schema violations: ${ajv.errorsText(validate.errors)}`)
+          else ok("opencode.jsonc valid against https://opencode.ai/config.json")
+
+          // skill IDs available on disk
+          const ids = new Set()
+          for (const root of ["skills/addy", "skills/oc"]) {
+            if (!existsSync(root)) continue
+            for (const e of readdirSync(root, { withFileTypes: true })) {
+              if (e.isDirectory() && existsSync(`${root}/${e.name}/SKILL.md`)) ids.add(e.name)
+            }
+          }
+
+          // 2. every referenced skill exists
+          for (const [agent, def] of Object.entries(config.agents ?? {})) {
+            for (const rule of def?.permissions ?? []) {
+              if (rule.action === "skill" && rule.effect === "allow" && !ids.has(rule.resource)) {
+                fail(`agent '${agent}' allows a missing skill: ${rule.resource}`)
+              }
+            }
+          }
+          if (existsSync("commands")) {
+            for (const f of readdirSync("commands")) {
+              const text = readFileSync(`commands/${f}`, "utf8")
+              for (const m of text.matchAll(/@([a-z0-9]+(?:-[a-z0-9]+)*)/g)) {
+                if (!ids.has(m[1])) fail(`commands/${f} references a missing skill: @${m[1]}`)
+              }
+            }
+          }
+          const agentIds = new Set(Object.keys(config.agents ?? {}))
+          if (existsSync("agents")) for (const f of readdirSync("agents")) agentIds.add(f.replace(/\.md$/, ""))
+          const TABLE_TOKEN_IGNORE = new Set([...agentIds, "oc-skills", "skills-added"])
+          for (const line of readFileSync("AGENTS.md", "utf8").split("\n")) {
+            if (!line.trimStart().startsWith("|")) continue
+            for (const m of line.matchAll(/([a-z0-9]+(?:-[a-z0-9]+)+)/g)) {
+              if (!TABLE_TOKEN_IGNORE.has(m[1]) && !ids.has(m[1])) {
+                fail(`AGENTS.md phase table references a missing skill: ${m[1]}`)
+              }
+            }
+          }
+          ok(`skill references checked against ${ids.size} skills on disk`)
+
+          // 7. model allow-list: provider prefix + the blueprint §3 roster
+          const roster = new Set()
+          const blueprint = readFileSync("docs/plan/blueprint.md", "utf8")
+          for (const m of blueprint.matchAll(/`(opencode(?:-go)?\/[a-z0-9][a-z0-9.\-]*)`/g)) roster.add(m[1])
+          const modelOk = (m, where) => {
+            if (typeof m !== "string" || !/^opencode(?:-go)?\//.test(m)) {
+              fail(`${where}: model '${m}' is not on the opencode/opencode-go providers`)
+              return
+            }
+            if (roster.size > 0 && !roster.has(m)) {
+              fail(`${where}: model '${m}' is not in the blueprint §3 roster`)
+            }
+          }
+          if (config.model) modelOk(config.model, "config.model")
+          for (const [id, def] of Object.entries(config.agents ?? {})) {
+            if (def?.model) modelOk(def.model, `agents.${id}.model`)
+          }
+          if (existsSync("agents")) {
+            for (const f of readdirSync("agents")) {
+              const m = readFileSync(`agents/${f}`, "utf8").match(/^model:\s*(\S+)\s*$/m)
+              if (m) modelOk(m[1].replace(/^["']|["']$/g, ""), `agents/${f}`)
+            }
+          }
+          ok(`model allow-list checked against ${roster.size} roster models from blueprint §3`)
+
+          if (errors.length > 0) {
+            console.error(`\n${errors.length} config verification failure(s)`)
+            process.exit(1)
+          }
+          console.log("\nconfig verification passed")
+          SCRIPT
+          node verify-config.mjs
+      # Blueprint §13 item 3: skills/addy/ changes only in addy-sync commits
+      - name: Addy vendoring — Addy-Sync trailer required on skills/addy/ commits
+        run: |
+          set -euo pipefail
+          bad=0
+          for c in $(git log --no-merges --format=%H); do
+            if git show --name-only --format= "$c" -- skills/addy | grep -q .; then
+              if ! git log -1 --format=%B "$c" | grep -q "^Addy-Sync: "; then
+                echo "commit $c changes skills/addy/ without an Addy-Sync: <sha> trailer"
+                bad=1
+              fi
+            fi
+          done
+          if [ "$bad" -ne 0 ]; then exit 1; fi
+          echo "ok: every skills/addy/ commit carries an Addy-Sync trailer"
+
   gitleaks:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

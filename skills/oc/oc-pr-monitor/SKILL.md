@@ -1,0 +1,34 @@
+---
+name: oc-pr-monitor
+description: The zero-token PR wait loop — call prmon_watch after opening a PR, handle wake-ups by fixing or replying to each listed item, and respect the round cap. Use whenever a slice PR is open and waiting on review or CI.
+---
+
+# oc-pr-monitor — waiting for review without spending tokens
+
+After `/ship` opens the PR, call `prmon_watch({ slice, pr })` and go idle. The
+monitor polls GitHub on a timer (`gh api graphql`) — no model calls happen
+between wakes.
+
+## Handling a wake-up
+
+A wake lists only the NEW unresolved review threads (file, line, body) and the
+failed checks (name, log tail URL). For each item, either:
+
+1. **Fix it**: commit, push (only ever to the slice branch), or
+2. **Decline it**: reply starting exactly with "Won't fix, because…" and resolve
+   the thread.
+
+Then go idle again. Never merge; Robin merges.
+
+## Rounds and end states
+
+- Each wake is one round. The cap is 5 rounds — on the 6th the slice becomes
+  BLOCKED and the monitor posts a summary on the issue.
+- READY means every review thread is resolved and `ci-ok` passed: the monitor
+  sets `status:ready`, posts a short PR comment and stops the watch.
+
+## Tools
+
+- `prmon_watch({ slice, pr })` — start watching; returns `{ watching: true }`.
+- `prmon_status({ slice })` — `{ round, threadsOpen, checks: {pending, failed,
+  passed}, state }`.

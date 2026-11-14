@@ -1,0 +1,16 @@
+{
+  "name": "opencode-config-v2",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Robin's user-level OpenCode 2.x configuration. Plugins are TypeScript, built on @opencode/plugin.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "^2.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

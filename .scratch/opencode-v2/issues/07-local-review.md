@@ -1,0 +1,12 @@
+# 07 — Local review: code-reviewer and security-auditor
+
+**What to build:** Following blueprint §4.3 and the `/review` draft: before a PR opens, the slice session runs `code-reviewer` (MiniMax M3) on every slice, plus `security-auditor` (Qwen3.8 Max) when `risk:security` is set or risky paths change. Findings are fixed or answered.
+
+**Blocked by:** 05
+
+**Status:** ready-for-agent
+
+- [ ] code-reviewer flags a deliberately weakened test and a hand-edited generated client in the fixture
+- [ ] security-auditor runs only on its trigger
+- [ ] Personas don't call each other or other agents
+- [ ] The review summary is ready to go into the PR template

@@ -3,15 +3,19 @@
 This is the concrete reference for building the repo from an empty `git init`. The spec (`spec.md`) says what to build and why. This file says what goes where, and gives the exact names, IDs, contracts and templates. Anything marked **[spike]** is taken from the OpenCode docs but not yet run; ticket 01 confirms it, and both files get amended if it fails.
 
 Pinned inputs (checked 2026-11-14):
+
 - OpenCode **2.3.0**, installed with `curl -fsSL https://opencode.ai/v2/install | bash -s -- --version 2.3.0`.
 - addy/agent-skills at commit **`39b723ceebf81474d0557c1fecd01eddab585563`** (2026-11-13), MIT licence, from <https://github.com/addyosmani/agent-skills>.
 - OpenCode docs: [agents](https://opencode.ai/docs/agents/), [config](https://opencode.ai/docs/config/), [commands](https://opencode.ai/docs/commands/), [skills](https://opencode.ai/docs/skills/), [server plugins](https://opencode.ai/docs/build/plugins/server/), [Go models](https://opencode.ai/docs/go/), [Zen models](https://opencode.ai/docs/console/models/).
+
+The spike (ticket 01, `../adr/0009-spike-results.md`) ran every mechanism below on 2026-11-14. All former **[spike]** markers are resolved; the text records the confirmed approach.
 
 ---
 
 ## 1. What this repo is
 
 This repo **is** the user-level OpenCode config directory.
+
 - On the Mac: clone it to `~/.config/opencode`. OpenCode then loads `opencode.jsonc`, `agents/`, `commands/`, `skills/` and `plugins/` from there for every project.
 - On the server: the opencode-server image clones it at `CONFIG_REF` into the config directory. Server-only extras are merged from opencode-server's own overrides (see §11).
 
@@ -63,7 +67,7 @@ opencode-config-v2/
 │   └── runbook.md                 # written in ticket 12
 ├── .scratch/opencode-v2/issues/   # tickets 00–12 (local tracker until published)
 ├── .github/workflows/ci.yml       # config validation, plugin tests, secret scan
-├── package.json                   # plugin dev deps (@opencode/plugin, test runner) [spike: runtime]
+├── package.json                   # @opencode/plugin (runtime dep, resolved by plugins/) + vitest/typescript (dev)
 ├── .gitignore
 ├── LICENSE                        # Robin's choice (default: MIT)
 └── README.md                      # what it is, install on Mac/server, update addy
@@ -85,48 +89,71 @@ The shape below follows the 2.0 [config docs](https://opencode.ai/docs/config/).
     { "action": "provider.use", "resource": "opencode", "effect": "allow" },
     { "action": "provider.use", "resource": "opencode-go", "effect": "allow" },
     { "action": "tool.use", "resource": "shell:git push --force*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:git push * main", "effect": "deny" }
+    { "action": "tool.use", "resource": "shell:git push * main", "effect": "deny" },
   ],
 
-  "skills": ["./skills/addy", "./skills/oc"],        // [spike] relative to the working directory, so use absolute or ~/ paths if needed
+  // No `skills` array: the vendored skills are found by auto-discovery of the global
+  // config `skills/` directory (skills/addy/<skill>/SKILL.md and skills/oc/<skill>/SKILL.md).
+  // Relative `skills` entries resolve from the *working directory*, not the config file,
+  // and globs are not supported — both confirmed by ADR 0009. `package` paths for plugins
+  // resolve against the config file's directory, so "./plugins/x" is <repo>/plugins/x.
   "worktree": { "directory": "~/.opencode-worktrees" },
 
   "agents": {
-    "plan":  { "model": "opencode/claude-opus-5-5",  "system": "<§4.1>", "permissions": [ /* §4.1 */ ] },
-    "build": { "model": "opencode-go/deepseek-v4.1-flash", "system": "<§4.2>", "permissions": [ /* §4.2 */ ] },
+    "plan": {
+      "model": "opencode/claude-opus-5-5",
+      "system": "<§4.1>",
+      "permissions": [/* §4.1 */],
+    },
+    "build": {
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "system": "<§4.2>",
+      "permissions": [/* §4.2 */],
+    },
     "explore": { "model": "opencode-go/glm-5.3" },
     "general": { "model": "opencode-go/glm-5.3" },
-    "title":   { "model": "opencode-go/gpt-6-luna" }   // [spike] whether hidden agents accept a model override
+    "title": { "model": "opencode-go/gpt-6-luna" }, // confirmed: hidden agents accept a model override
   },
 
   "plugins": [
     { "package": "./plugins/oc-skills" },
-    { "package": "./plugins/oc-worktree", "options": { "maxParallel": 3, "worktreeRoot": "~/.opencode-worktrees" } },
-    { "package": "./plugins/oc-sandbox",  "options": { "backend": "{env:OC_SANDBOX_BACKEND}", "sidecarUrl": "{env:OC_SANDBOX_URL}", "sidecarToken": "{env:OC_SANDBOX_TOKEN}" } },
-    { "package": "./plugins/oc-pr-monitor", "options": { "intervalMs": 120000, "maxRounds": 5 } }
-  ]
+    {
+      "package": "./plugins/oc-worktree",
+      "options": { "maxParallel": 3, "worktreeRoot": "~/.opencode-worktrees" },
+    },
+    {
+      "package": "./plugins/oc-sandbox",
+      "options": {
+        "backend": "{env:OC_SANDBOX_BACKEND}",
+        "sidecarUrl": "{env:OC_SANDBOX_URL}",
+        "sidecarToken": "{env:OC_SANDBOX_TOKEN}",
+      },
+    },
+    { "package": "./plugins/oc-pr-monitor", "options": { "intervalMs": 120000, "maxRounds": 5 } },
+  ],
 }
 ```
 
-If `system` can't hold long text, or can't reference a file, then `plan`/`build` move to `agents/plan.md` and `agents/build.md` with the prompt as the Markdown body. **[spike]**
+Markdown agents in `agents/` accept the same fields as `agents` entries (confirmed, ADR 0009); `plan` and `build` stay as config overrides so their long system prompts can live in `opencode.jsonc` without a file split.
 
 ### Model roster
 
-| Agent | Model ID | Price per 1M (in/out) |
-|---|---|---|
-| plan | `opencode/claude-opus-5-5` | $4 / $20 |
-| explore, general | `opencode-go/glm-5.3` | $1.40 / $4.40 |
-| build | `opencode-go/deepseek-v4.1-flash` | $0.15/$0.60 off-peak; $0.30/$1.20 peak (01:00–04:00 and 06:00–10:00 UTC, Mon–Fri) |
-| code-reviewer | `opencode-go/minimax-m3` (alt `opencode-go/kimi-k2.7-code`) | $0.30/$1.20 (alt $0.95/$4) |
-| security-auditor | `opencode-go/qwen3.8-max` | $2 / $6 |
-| UI/vision work (optional) | `opencode/gemini-3.8-flash` | $0.75 / $3.75 |
-| title | `opencode-go/gpt-6-luna` | $0.10 / $0.50 |
+| Agent                     | Model ID                                                    | Price per 1M (in/out)                                                             |
+| ------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| plan                      | `opencode/claude-opus-5-5`                                  | $4 / $20                                                                          |
+| explore, general          | `opencode-go/glm-5.3`                                       | $1.40 / $4.40                                                                     |
+| build                     | `opencode-go/deepseek-v4.1-flash`                           | $0.15/$0.60 off-peak; $0.30/$1.20 peak (01:00–04:00 and 06:00–10:00 UTC, Mon–Fri) |
+| code-reviewer             | `opencode-go/minimax-m3` (alt `opencode-go/kimi-k2.7-code`) | $0.30/$1.20 (alt $0.95/$4)                                                        |
+| security-auditor          | `opencode-go/qwen3.8-max`                                   | $2 / $6                                                                           |
+| UI/vision work (optional) | `opencode/gemini-3.8-flash`                                 | $0.75 / $3.75                                                                     |
+| title                     | `opencode-go/gpt-6-luna`                                    | $0.10 / $0.50                                                                     |
 
 **Setup Robin does himself:** run `/connect` for OpenCode Go and Zen. Then, in Go's **Settings › Privacy › Regions**, choose **Global**; DeepSeek V4.1 Flash needs this ([Go docs](https://opencode.ai/docs/go/)).
 
 ## 4. Agents
 
 ### 4.1 `plan` (overrides the built-in)
+
 - **Job:** Define + Plan only. Runs `/spec` and `/plan`. Never writes app code.
 - **Permissions (ordered, last match wins):**
   - edit `*` deny
@@ -147,6 +174,7 @@ If `system` can't hold long text, or can't reference a file, then `plan`/`build`
   6. Delegate read-only repo research to `explore`/`general`.
 
 ### 4.2 `build` (overrides the built-in)
+
 - **Job:** Build → Verify → Review → Ship for one slice (`/build #N` in a slice worktree), or coordinate slices (`/build` in the main checkout).
 - **Permissions:**
   - edit `*` allow (within the session directory)
@@ -162,6 +190,7 @@ If `system` can't hold long text, or can't reference a file, then `plan`/`build`
   5. Run tests only through `oc-sandbox` tools, never through raw docker.
 
 ### 4.3 `code-reviewer`, `security-auditor` (addy personas)
+
 - The body is copied verbatim from addy's `agents/code-reviewer.md` and `agents/security-auditor.md`. Only the frontmatter changes: `mode: subagent`, `model` (see §3), permissions edit `*` deny, shell allow for `git diff*|git log*|git show*` only.
 - Add one paragraph to the code-reviewer body, as a clearly marked local extension: "Check that the slice's tests were not weakened, deleted or skipped to make them pass, and that each behaviour change has a preceding test-only commit."
 - `test-engineer` and `web-performance-auditor` aren't installed.
@@ -176,28 +205,28 @@ Also vendor addy's `references/` folder, because some skills point into it. `UPS
 
 Skills load in three layers, from strongest to weakest:
 
-1. **Command templates** name skills with `@skill-id`. The [skills docs](https://opencode.ai/docs/skills/) say mentioning `@skill-id` in a prompt loads it. **[spike: works inside a command template]**
+1. **Command templates** name skills with `@skill-id` (confirmed inside command templates, ADR 0009). In a freshly created worktree session the mention attach can race location boot, so the base skills are _also_ added by layer 2.
 2. **The `oc-skills` plugin** registers `ctx.session.hook("prompt", …)`. The 2.0 prompt hook gets a mutable draft whose `prompt.skills` can be extended ([server plugin docs](https://opencode.ai/docs/build/plugins/server/)). Commands submitted through `session.prompt` run the hook. Rules:
    - If the prompt starts with `/build #N` and the session is in a slice worktree, read the slice record that `oc-worktree` saved at `slice_start` (labels included) and add the base skills plus the area skills from the table below.
    - Otherwise do nothing. The command templates already cover `/spec` and `/plan`.
 3. **The global `AGENTS.md`** carries the same table, so the model knows which skill applies when work comes outside a command.
 
-**Per-app skills.** The Project Template puts agent context for each app in `apps/<app>/.agents/skills/`. OpenCode only discovers `.agents/skills` from the current directory upwards ([skills docs](https://opencode.ai/docs/skills/)), but slice sessions run at the repo root. So the `oc-skills` hook adds each `area:<app>` slice's app skills explicitly, and the global `skills` array also lists `./apps/*/.agents/skills` **[spike: glob support; fallback is the hook only]**.
+**Per-app skills.** The Project Template puts agent context for each app in `apps/<app>/.agents/skills/`. `skills` config entries support **no globs** (confirmed, ADR 0009), and project `.agents/skills` discovery only searches from the current directory upwards, while slice sessions run at the repo root. So the `oc-skills` hook adds each `area:<app>` slice's app skills explicitly.
 
-| Trigger | Skills added |
-|---|---|
-| `/spec` | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change) |
-| `/plan` | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded) |
-| `/build` (main checkout) | oc-worktree |
-| `/build #N` (slice) base | incremental-implementation, test-driven-development, context-engineering, oc-sandbox |
+| Trigger                                   | Skills added                                                                                                                                                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/spec`                                   | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                        |
+| `/plan`                                   | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                       |
+| `/build` (main checkout)                  | oc-worktree                                                                                                                                                                                                         |
+| `/build #N` (slice) base                  | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                |
 | label `area:<app>` (one per `apps/<app>`) | the skills mapped to that app in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
-| any `area:<app>` | that app's own `apps/<app>/.agents/skills/` (see below) |
-| label `area:db` | deprecation-and-migration (expand/contract) |
-| label `area:infra` | ci-cd-and-automation |
-| label `risk:security` | security-and-hardening (+ the security-auditor subagent) |
-| on test failure | debugging-and-error-recovery |
-| `/review` | code-review-and-quality, code-simplification |
-| `/ship` | git-workflow-and-versioning, oc-github, oc-pr-monitor |
+| any `area:<app>`                          | that app's own `apps/<app>/.agents/skills/` (see below)                                                                                                                                                             |
+| label `area:db`                           | deprecation-and-migration (expand/contract)                                                                                                                                                                         |
+| label `area:infra`                        | ci-cd-and-automation                                                                                                                                                                                                |
+| label `risk:security`                     | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                            |
+| on test failure                           | debugging-and-error-recovery                                                                                                                                                                                        |
+| `/review`                                 | code-review-and-quality, code-simplification                                                                                                                                                                        |
+| `/ship`                                   | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                               |
 
 ## 7. Plugins (TypeScript, `@opencode/plugin`)
 
@@ -205,12 +234,12 @@ Each one is `export default Plugin.define({ id, setup(ctx) })`, registers its to
 
 ### 7.1 `oc-worktree` (namespace `slice`)
 
-| Tool | Input | Output | Behaviour |
-|---|---|---|---|
-| `slice_start` | `{ issue: number }` | `{ directory, branch, sessionID }` or `{ blocked: reason }` | Reads the issue (title, labels, blockers) with `gh`. Refuses if any blocker is open or if `maxParallel` slices are already active. Runs `git fetch origin main`, then creates the worktree at `<worktreeRoot>/<repo>/slice-<N>-<slug>` on branch `slice/<N>-<slug>` from `origin/main` (2.0 worktree strategy via `ctx.worktree.transform`, otherwise `git worktree add`) **[spike]**. Copies `.env*` from the main checkout (except `.env.example`) for Robin's convenience when he opens the worktree, and returns paths only, never values. Verification never depends on these files: the test setup is self-contained (§9.2). Saves the slice record `{issue, labels, branch, directory, prd}`. Creates a session in the directory titled `#N <title>` **[spike: directory parameter on ctx.session.create]** and runs `ctx.session.command({sessionID, name:"build", text:"#N"})`. Sets the issue label to `status:in-progress`. |
-| `slice_status` | `{}` | list of `{issue, branch, sessionID, state, prURL?}` | State is one of `building`, `in-review`, `ready`, `blocked`. |
-| `slice_sync` | `{}` | per slice `{issue, result}` | After any merge to `main`: in each active worktree run `git fetch` and `git merge origin/main`. Conflicts are reported as BLOCKED and never forced. |
-| `slice_finish` | `{ issue: number }` | `{ ok }` or `{ refused: reason }` | Only after the PR is merged. Refuses if the worktree is dirty or has unpushed commits. Calls `sandbox_down`, removes the worktree and deletes the local branch. Before removing, it compares directory identity (device and inode) with the worktree root, so a bind-mounted root can never be removed. |
+| Tool           | Input               | Output                                                      | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------- | ------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slice_start`  | `{ issue: number }` | `{ directory, branch, sessionID }` or `{ blocked: reason }` | Reads the issue (title, labels, blockers) with `gh`. Refuses if any blocker is open or if `maxParallel` slices are already active. Runs `git fetch origin main`, then creates the worktree on branch `slice/<N>-<slug>` from `origin/main` through the plugin's own **worktree strategy** (confirmed, ADR 0009: registered with `ctx.worktree.transform`, whose `create` runs `git worktree add -b slice/<N>-<slug> <dir> origin/main` — the built-in strategy checks out detached and its `branch` input requires a pre-existing branch). The worktree lands at `<worktreeRoot>/<repo>/slice-<N>-<slug>`. **Anti-cascade rule:** worktrees are created only from tool calls, never from plugin setup or timers, and only in the canonical checkout (`ctx.location.directory === ctx.location.project.canonical`). Copies `.env*` from the main checkout (except `.env.example`) for Robin's convenience when he opens the worktree, and returns paths only, never values. Verification never depends on these files: the test setup is self-contained (§9.2). Saves the slice record `{issue, labels, branch, directory, prd}`. Creates a session in the directory titled `#N <title>` (`ctx.session.create({ title, location: { directory } })`, confirmed) and runs `ctx.session.command({sessionID, name:"build", text:"#N"})`. Sets the issue label to `status:in-progress`. |
+| `slice_status` | `{}`                | list of `{issue, branch, sessionID, state, prURL?}`         | State is one of `building`, `in-review`, `ready`, `blocked`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `slice_sync`   | `{}`                | per slice `{issue, result}`                                 | After any merge to `main`: in each active worktree run `git fetch` and `git merge origin/main`. Conflicts are reported as BLOCKED and never forced.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `slice_finish` | `{ issue: number }` | `{ ok }` or `{ refused: reason }`                           | Only after the PR is merged. Refuses if the worktree is dirty or has unpushed commits. Calls `sandbox_down`, removes the worktree and deletes the local branch. Before removing, it compares directory identity (device and inode) with the worktree root, so a bind-mounted root can never be removed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 Errors must tell "OpenCode server unreachable" (the server needs a restart) apart from "path is not a git worktree" (recoverable: prune and retry once).
 
@@ -218,15 +247,16 @@ Errors must tell "OpenCode server unreachable" (the server needs a restart) apar
 
 **Rule:** every test run happens in a fully isolated Docker setup, built from the repo's own Dockerfiles and its single `compose.yml` (§9.2). Nothing is taken from the machine running OpenCode: no host toolchains, no host env, no host services. That's what makes the result production-ready and the same everywhere.
 
-| Tool | Input | Output | Behaviour |
-|---|---|---|---|
-| `sandbox_up` | `{ slice: string }` | `{ backend, id }` | Picks the backend (below). The ID is `s<N>-<6-char hash>`, kept under Docker's 64-byte hostname limit. Builds the test contract's images and warms them (dependencies up and healthy), so the first RED run isn't a cold build. |
-| `sandbox_test` | `{ slice, service?: string, args?: string[] }` | `{ exit_code, passed, sha, tail }` | Runs one test service from the contract (default: the full suite) with optional focused args, for example one test file. Records `{sha, service, args, passed, at}` as evidence. `tail` is the last 200 lines with secrets redacted. |
-| `sandbox_gate` | `{ slice }` | `{ passed, steps[] }` | The full pre-PR run: every test service in the contract, the client drift check and the production-image smoke check, all in the isolated setup. |
-| `redgreen_check` | `{ slice }` | `{ ok, violations[] }` | For each commit `main..HEAD`: a commit that changes only test paths must have a failing evidence record; the next commit that changes non-test paths must have a passing one. Generated client code counts as neither. Test-path globs come from `AGENTS.md` front matter (`test_globs`). |
-| `sandbox_down` | `{ slice }` | `{ ok }` | Tears down the slice's Compose project with its volumes and destroys the box. |
+| Tool             | Input                                          | Output                             | Behaviour                                                                                                                                                                                                                                                                                 |
+| ---------------- | ---------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandbox_up`     | `{ slice: string }`                            | `{ backend, id }`                  | Picks the backend (below). The ID is `s<N>-<6-char hash>`, kept under Docker's 64-byte hostname limit. Builds the test contract's images and warms them (dependencies up and healthy), so the first RED run isn't a cold build.                                                           |
+| `sandbox_test`   | `{ slice, service?: string, args?: string[] }` | `{ exit_code, passed, sha, tail }` | Runs one test service from the contract (default: the full suite) with optional focused args, for example one test file. Records `{sha, service, args, passed, at}` as evidence. `tail` is the last 200 lines with secrets redacted.                                                      |
+| `sandbox_gate`   | `{ slice }`                                    | `{ passed, steps[] }`              | The full pre-PR run: every test service in the contract, the client drift check and the production-image smoke check, all in the isolated setup.                                                                                                                                          |
+| `redgreen_check` | `{ slice }`                                    | `{ ok, violations[] }`             | For each commit `main..HEAD`: a commit that changes only test paths must have a failing evidence record; the next commit that changes non-test paths must have a passing one. Generated client code counts as neither. Test-path globs come from `AGENTS.md` front matter (`test_globs`). |
+| `sandbox_down`   | `{ slice }`                                    | `{ ok }`                           | Tears down the slice's Compose project with its volumes and destroys the box.                                                                                                                                                                                                             |
 
 **Backends (the same test contract under both):**
+
 1. **sysbox (server).** OpenCode runs in Docker on Ubuntu. Each slice gets its own Sysbox container with its own inner Docker engine, created through the sidecar (§10), and the Compose test contract runs inside it.
 2. **docker (local Mac).** Docker Compose is called directly with a unique project name (`-p <id>`), no published host ports, and its own networks and volumes. The containers are isolated from the Mac's own environment.
 
@@ -234,10 +264,10 @@ Selection: `OC_SANDBOX_BACKEND=sysbox|docker` wins. Otherwise (`auto`): sidecar 
 
 ### 7.3 `oc-pr-monitor` (namespace `prmon`)
 
-| Tool | Input | Output |
-|---|---|---|
-| `prmon_watch` | `{ slice, pr: number }` | `{ watching: true }` |
-| `prmon_status` | `{ slice }` | `{ round, threadsOpen, checks: {pending, failed, passed}, state }` |
+| Tool           | Input                   | Output                                                             |
+| -------------- | ----------------------- | ------------------------------------------------------------------ |
+| `prmon_watch`  | `{ slice, pr: number }` | `{ watching: true }`                                               |
+| `prmon_status` | `{ slice }`             | `{ round, threadsOpen, checks: {pending, failed, passed}, state }` |
 
 - `setInterval(intervalMs)` while a watch is active. Each tick makes plain API calls through `gh api graphql` and spends no model tokens. It reads `reviewThreads { isResolved, comments(last) }` and the commit's check runs, then diffs them with the last snapshot in `ctx.storage`.
 - **When something changes and the session is idle:** `ctx.session.prompt({sessionID, text})` sends a compact summary of only the new unresolved threads (file, line, body) and the failed checks (name, log tail URL), and increments `round`.
@@ -246,11 +276,13 @@ Selection: `OC_SANDBOX_BACKEND=sysbox|docker` wins. Otherwise (`auto`): sidecar 
 - The slice session answers each thread with a fix commit, or a reply that begins "Won't fix, because…" followed by a resolve.
 
 ### 7.4 `oc-skills`
+
 Defined in §6. It has no tools, only the prompt hook.
 
 ## 8. Integration skills (`skills/oc/`)
 
 Each is a short `SKILL.md` with `name` and `description` frontmatter. It describes when to use the plugin's tools and what to do with their results, and doesn't re-explain addy's process.
+
 - **oc-github:** PRD and slice issue creation, using the templates in §9. Sets labels and dependencies, using the GitHub sub-issue and "blocked by" relationships (falling back to a "Blocked by" section). Opens the PR with the template and links `Closes #N` and `Part of #PRD`. Closes the PRD when its last slice merges.
 - **oc-worktree:** when and how to call `slice_*`, and what each state means.
 - **oc-sandbox:** the red/green loop through `sandbox_test`, focused runs vs full runs, and reading `redgreen_check`.
@@ -261,7 +293,9 @@ Each is a short `SKILL.md` with `name` and `description` frontmatter. It describ
 ## 9. App repo contract
 
 ### 9.1 Layout and architecture: Robin's Project Template
+
 App repos use the monorepo **layout and architecture** shown in `templates/project/TEMPLATE.md` (an example taken from Rekalled):
+
 - **Zones:** `apps/` (deployable apps), `packages/` (shared or generated code such as `api-client`), `infra/`, `scripts/`, `docs/` (`spec/`, `decisions/`, `deployment/`), `.github/`.
 - **Each app has its own Dockerfile, image and lockfile.** Images are built and deployed separately by GitHub Actions. Production databases and other services can be external, or run as separate services.
 - **Contract-first API:** the backend exports OpenAPI, the typed client is generated into `packages/api-client` and committed, and the frontend never hand-writes API types.
@@ -271,7 +305,9 @@ App repos use the monorepo **layout and architecture** shown in `templates/proje
 Internals vary by stack (for example Rails instead of FastAPI). The template's testing section (§4) doesn't decide how the flow tests: §9.2 does. The `justfile` is optional, a shortcut for Robin. The flow never depends on it (D31).
 
 ### 9.2 Test contract: one `compose.yml` per repo, fully isolated
+
 This follows the template's §4: the standalone Docker test path.
+
 - **Every repo has exactly one Compose file, `compose.yml`, at the root** (D29), with the template's profiles:
   - **dev** (the default): dependencies only, for Robin's native inner loop. The flow never uses it.
   - **test** (`just test-docker`): the test suites in containers built from each app's **test target**, against a throwaway `db-test`.
@@ -290,22 +326,29 @@ This follows the template's §4: the standalone Docker test path.
 ### 9.3 Flow additions scaffolded by `repo-setup` (`templates/repo/`)
 
 **Root `AGENTS.md`** front matter:
+
 ```markdown
 ---
 apps:
   api: { kind: backend, stack: fastapi, skills: [api-and-interface-design] }
-  web: { kind: frontend, stack: tanstack-start, skills: [frontend-ui-engineering, browser-testing-with-devtools] }
+  web:
+    {
+      kind: frontend,
+      stack: tanstack-start,
+      skills: [frontend-ui-engineering, browser-testing-with-devtools],
+    }
 contract: { generated: ["packages/api-client/**"], generator_service: "api-client-gen" }
 test:
-  compose: compose.yml          # always this file
+  compose: compose.yml # always this file
   profiles: { test: test, full: full }
-  commands:                     # what oc-sandbox runs; an optional justfile wraps the same commands
+  commands: # what oc-sandbox runs; an optional justfile wraps the same commands
     test: "docker compose -f compose.yml --profile test run --rm {service} {args}"
     full: "docker compose -f compose.yml --profile full up -d --wait"
   services: { all: "test", api: "api-test", web: "web-test", e2e: "e2e", smoke: "smoke" }
 test_globs: ["apps/*/tests/**", "apps/web/e2e/**", "apps/*/**/*.test.*", "apps/*/**/*_spec.rb"]
 ---
 ```
+
 The body describes each app, the flag convention, and points to `docs/spec/` and `docs/decisions/`.
 
 **Vertical slice order inside one PR:** migration (expand) → API test RED → API GREEN → regenerate the client (through the contract's generator service; commit it) → web test RED → web GREEN → E2E for the user flow → `sandbox_gate`. A slice that touches only one app skips the steps it doesn't need.
@@ -326,13 +369,13 @@ The body describes each app, the flag convention, and points to `docs/spec/` and
 
 The sidecar is a container on the internal network. It is the **only** container that mounts `/var/run/docker.sock`. All calls require `Authorization: Bearer <OC_SANDBOX_TOKEN>`, which Robin sets.
 
-| Method | Path | Body | Result |
-|---|---|---|---|
-| GET | `/v1/health` | — | `{ ok, version }` |
-| POST | `/v1/sandboxes` | `{ id, worktree }` | `{ id, status }`. The worktree must sit under the configured worktree root, or the call is rejected. Creates `opencode-sandbox-<id>` with `--runtime=sysbox-runc` and the pinned **box image** (Docker engine + Compose only), with the worktree mounted at `/work`. |
-| POST | `/v1/sandboxes/{id}/exec` | `{ argv, timeoutMs }` | `{ exit_code, stdout_tail, stderr_tail, duration_ms }`. `argv` must match the allow-list: `docker compose -p <id> -f compose.yml (build \| up -d --wait <deps> \| run --rm <test service> … \| down -v)` or `git diff --exit-code …`. Anything else is rejected. |
-| GET | `/v1/sandboxes/{id}` | — | `{ id, status, created_at }` |
-| DELETE | `/v1/sandboxes/{id}` | — | `{ ok }` |
+| Method | Path                      | Body                  | Result                                                                                                                                                                                                                                                               |
+| ------ | ------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/health`              | —                     | `{ ok, version }`                                                                                                                                                                                                                                                    |
+| POST   | `/v1/sandboxes`           | `{ id, worktree }`    | `{ id, status }`. The worktree must sit under the configured worktree root, or the call is rejected. Creates `opencode-sandbox-<id>` with `--runtime=sysbox-runc` and the pinned **box image** (Docker engine + Compose only), with the worktree mounted at `/work`. |
+| POST   | `/v1/sandboxes/{id}/exec` | `{ argv, timeoutMs }` | `{ exit_code, stdout_tail, stderr_tail, duration_ms }`. `argv` must match the allow-list: `docker compose -p <id> -f compose.yml (build \| up -d --wait <deps> \| run --rm <test service> … \| down -v)` or `git diff --exit-code …`. Anything else is rejected.     |
+| GET    | `/v1/sandboxes/{id}`      | —                     | `{ id, status, created_at }`                                                                                                                                                                                                                                         |
+| DELETE | `/v1/sandboxes/{id}`      | —                     | `{ ok }`                                                                                                                                                                                                                                                             |
 
 **Box image:** a minimal image with only Docker engine and Compose, pinned. Everything else comes from the repo's own Dockerfiles, so nothing app-specific is ever installed on the server.
 
@@ -348,14 +391,14 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 
 ## 12. Environment and secrets (Robin enters every value himself)
 
-| Name | Where | Purpose |
-|---|---|---|
-| OpenCode Go / Zen login | `/connect` on each machine | models |
-| GitHub auth for `gh` | `gh auth login` on each machine | issues, PRs, monitor |
-| `OC_SANDBOX_BACKEND` | env (optional) | `auto` \| `sysbox` \| `docker` |
-| Real app secrets | Robin's secrets manager | never needed for tests (§9.2), never pulled by agents |
-| `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env | sidecar access |
-| CodeRabbit app | GitHub, per repo | PR review |
+| Name                                 | Where                           | Purpose                                               |
+| ------------------------------------ | ------------------------------- | ----------------------------------------------------- |
+| OpenCode Go / Zen login              | `/connect` on each machine      | models                                                |
+| GitHub auth for `gh`                 | `gh auth login` on each machine | issues, PRs, monitor                                  |
+| `OC_SANDBOX_BACKEND`                 | env (optional)                  | `auto` \| `sysbox` \| `docker`                        |
+| Real app secrets                     | Robin's secrets manager         | never needed for tests (§9.2), never pulled by agents |
+| `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                      | sidecar access                                        |
+| CodeRabbit app                       | GitHub, per repo                | PR review                                             |
 
 ## 13. This repo's own CI (`.github/workflows/ci.yml`)
 

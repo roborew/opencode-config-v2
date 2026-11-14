@@ -21,6 +21,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 ## User Stories
 
 ### Define and plan
+
 1. As Robin, I want `/spec <idea>` to interview me before writing anything, so that the spec reflects what I actually want and not the model's guess.
 2. As Robin, I want the spec written by an expensive planning model (Claude Opus 5.5), so that the costly reasoning happens once, up front.
 3. As Robin, I want the planning agent's read-only research done by GLM 5.3 subagents, so that repo exploration doesn't burn Opus tokens.
@@ -29,8 +30,8 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 6. As Robin, I want `/plan` to produce vertical slices that each cut through every layer and are independently mergeable to `main`, so that each PR is small, reviewable and safe.
 7. As Robin, I want each slice issue to list its blocking slices, so that `/build` only starts work that is ready.
 8. As Robin, I want each slice issue to carry an `area:<app>` label for every app it touches (plus `area:db` or `area:infra` where relevant), so that the right domain skills and that app's own `.agents/skills/` load automatically during build.
-8a. As Robin, I want a user-facing change planned as one vertical slice through the whole stack (migration, API, generated client, web, E2E) and not as separate backend and frontend PRs, so that every PR delivers working behaviour.
-8b. As Robin, I want API changes made contract-first, with the client regenerated and committed in the same slice, so that the frontend never hand-writes API types and CI catches drift.
+   8a. As Robin, I want a user-facing change planned as one vertical slice through the whole stack (migration, API, generated client, web, E2E) and not as separate backend and frontend PRs, so that every PR delivers working behaviour.
+   8b. As Robin, I want API changes made contract-first, with the client regenerated and committed in the same slice, so that the frontend never hand-writes API types and CI catches drift.
 9. As Robin, I want each slice to state its flag or branch-by-abstraction plan and acceptance criteria, so that incomplete behaviour stays dark on `main`.
 10. As Robin, I want every flag to come with a removal slice, so that flags don't pile up.
 11. As Robin, I want schema changes planned as expand/contract slices, so that each migration is safe to merge on its own.
@@ -38,6 +39,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 13. As Robin, I want the planning agent unable to edit app code, so that planning stays planning.
 
 ### Build
+
 14. As Robin, I want `/build` in the main checkout to pick at most 3 unblocked slices and create one worktree per slice off `main`, so that parallel work never shares files.
 15. As Robin, I want each slice worktree to open its own visible OpenCode session already running `/build #N`, so that I can watch or step into any slice.
 16. As Robin, I want slice worktrees, branches and sandboxes to use short, predictable names (`slice/<issue>-<slug>`), so that I can find them in Tower, the Desktop app and Docker.
@@ -49,6 +51,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 22. As Robin, I want a slice that can't converge to stop as BLOCKED with a short reason posted on its issue, so that spec gaps come back to `plan` and don't loop forever.
 
 ### Verify
+
 23. As Robin, I want every repo to have exactly one `compose.yml` that builds and runs the whole system and its test suite from the repo's own Dockerfiles, with dummy env and throwaway dependencies, so that tests are production-ready and "tests pass" means the same thing on my Mac, on the server and in GitHub Actions.
 24. As Robin, I want each slice's tests to run fully isolated (its own Sysbox container on the server, where OpenCode runs in Docker; its own Compose project on my Mac, isolated from my machine), so that Rails, FastAPI and other stacks never clash and never depend on my local environment.
 25. As Robin, I want the sandbox backend detected automatically, with an override, so that one config works on both machines.
@@ -57,11 +60,13 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 28. As Robin, I want the host Docker socket removed from the OpenCode container on the server, so that no agent shell has root-equivalent access to the host.
 
 ### Review
+
 29. As Robin, I want an addy `code-reviewer` subagent, on a different model family from the builder (MiniMax M3), to review every slice before the PR, so that obvious problems are caught locally.
 30. As Robin, I want `security-auditor` (Qwen3.8 Max) to run only when risky paths change (auth, secrets, migrations, dependency manifests, infra), so that I pay for security review only when it matters.
 31. As Robin, I want the reviewer to check that tests weren't weakened to pass, so that green means correct.
 
 ### Ship
+
 32. As Robin, I want the slice session to push the branch and open a PR to `main` that links the slice issue and its PRD, so that GitHub shows the full trail.
 33. As Robin, I want a PR monitor that waits on a timer without spending tokens and wakes the slice session when CodeRabbit comments or Actions results arrive, so that waiting is free.
 34. As Robin, I want the slice session to fix each comment or reply "won't fix, because…", capped at about 5 rounds, so that review loops end.
@@ -71,6 +76,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 38. As Robin, I want the PRD issue to close when its last slice merges, so that umbrella tracking stays accurate.
 
 ### Config, models and maintenance
+
 39. As Robin, I want all models to come from OpenCode Go or Zen, so that billing and access stay in one place.
 40. As Robin, I want addy's skills vendored unmodified plus an `addy-sync` skill that pulls upstream changes, so that I get addy's improvements without merge pain.
 41. As Robin, I want my own integration skills (`oc-worktree`, `oc-sandbox`, `oc-github`, `oc-pr-monitor`) kept separate from addy's, so that the boundary between upstream and mine stays obvious.
@@ -82,6 +88,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 ## Implementation Decisions
 
 ### Modules (opencode-config-v2)
+
 - Concrete layout, model IDs, permissions, tool signatures and templates are in `blueprint.md`. If this spec and the blueprint disagree, the blueprint wins for detail and the spec wins for intent.
 - **Config root:** v2 `opencode.jsonc` with Go and Zen providers only. It holds `agents` overrides for `plan` and `build` (model, system prompt, permissions), the two persona subagents, the `skills` paths, the commands, and the plugins. `plan` gets edit permission only for `docs/spec/**` and `docs/decisions/**`. `build` gets edit permission in its working directory, a shell allow-list, and denies for raw `docker`/`sandbox`, force push and pushes to `main`. Per-agent `skill` permissions show each agent only the skills it uses.
 - **Commands:** `/spec`, `/plan`, `/build` (with or without an issue number), `/review`, `/ship`. They are adapted from addy's command prompts and each sets `agent`. The `/spec` and `/plan` templates name their skills with `@skill-id`. The `/build #N` kickoff names the base build skills, plus the domain skills mapped from the slice's `area:*` labels.
@@ -93,11 +100,13 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 - **Red/green check:** for each slice, every code commit that changes behaviour must have a preceding test-only commit whose recorded sandbox run failed. The check runs in `oc-sandbox` before the PR opens and is repeated in the reviewer's checklist.
 
 ### Modules (opencode-server, upgrading-to-2.0)
+
 - **Sandbox sidecar:** a new service that alone mounts the host Docker socket. It exposes a fixed internal API (`create`, `exec`, `destroy`, `status`), forces the `sysbox-runc` runtime and the sandbox image, and rejects anything else. The OpenCode container no longer mounts the socket.
 - **Overrides:** `opencode.server.json` rewritten in the v2 shape (`permissions`, `mcp.servers`), with the redundant external-directory allows removed. Server-only plugins stay: gitdir rewrite, delete guard, localhost rewrite.
 - **Image:** the CodeRabbit CLI and the preview/tunnel env vars are removed. `CONFIG_REPO` points at `opencode-config-v2` and `CONFIG_REF` at its tag or `main`. OpenCode stays pinned at 2.3.0.
 
 ### Contracts
+
 - **Slice naming:** issue `#N`, branch and worktree `slice/<N>-<slug>`, Compose project and sandbox ID derived from `N` (short, under the 64-byte hostname cap).
 - **Issue labels:** `prd`, `slice`, `area:web|api|db|infra|docs`, `risk:security`, and status `ready|in-progress|blocked|in-review`. A slice's dependencies are stored as GitHub sub-issue/blocking relationships where available, otherwise as a "Blocked by" section.
 - **App repo layout:** the monorepo layout and architecture from Robin's Project Template (`templates/project/TEMPLATE.md`). Only layout and architecture apply. The template's testing section doesn't set how the flow tests.
@@ -106,16 +115,19 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 - **Model roster:** `plan` uses Claude Opus 5.5 (Zen). `explore`/`general` use GLM 5.3 (Go). `build` uses DeepSeek V4.1 Flash (Go). `code-reviewer` uses MiniMax M3 (Go), with Kimi K2.7 Code as an alternative. `security-auditor` uses Qwen3.8 Max (Go). UI/vision uses Gemini 3.8 Flash (Zen). Titles use GPT 6 Luna (Go).
 
 ### To be confirmed by the spike (ticket 01)
-These are documented by OpenCode but not yet run. Each one has a fallback in the blueprint.
-- `@skill-id` inside a command template loads the skill.
-- The prompt hook can add `prompt.skills` for a `/build #N` command.
-- A plugin can create a session in a given worktree directory and run a command in it (`ctx.session.create` + `ctx.session.command`).
-- `ctx.worktree.transform` (or plain `git worktree add`) gives a `slice/<N>-<slug>` branch from `origin/main`.
-- A plugin `setInterval` + `ctx.session.prompt` can wake an idle session.
-- The `plan`/`build` overrides accept `model`, `system` and `permissions` together, and markdown agents in `agents/` accept the same fields.
-- `policies` with `provider.use` restricts the config to `opencode` and `opencode-go`.
-- `skills` paths resolve correctly when the repo is the global config directory.
-- The runtime and package layout for local plugins (`package` path + `package.json`).
+
+Resolved 2026-11-14 — evidence and consequences in `../adr/0009-spike-results.md`. Summary:
+
+- `@skill-id` in a command template loads the skill — confirmed (worktree-boot race covered by the hook).
+- The prompt hook can add `prompt.skills` — confirmed.
+- `ctx.session.create` in a worktree directory + `ctx.session.command` — confirmed (`location: { directory }`).
+- Slice worktrees — confirmed via a **custom worktree strategy** (`ctx.worktree.transform`); the built-in `branch` input needs a pre-existing branch and checks out detached.
+- `setInterval` + `ctx.session.prompt` wakes an idle session — confirmed.
+- `plan`/`build`/`title` overrides and markdown agents accept `model`/`system`/`permissions` — confirmed.
+- `policies` `provider.use` gates model use (listing still shows the catalog) — confirmed.
+- `skills` paths: relative entries resolve from the working directory (so the repo relies on auto-discovery of the config `skills/` dir); `~` and absolute entries work; **no glob support** — the hook adds per-app skills.
+- Local plugin layout: `index.ts` in a plugin dir, `package` paths resolve against the config file's directory, deps resolve from the repo's `node_modules` — confirmed.
+- Extra: the global config directory ignores `HOME`/`XDG_CONFIG_HOME` (resolved from the OS user record) — the server image must clone `CONFIG_REF` into the container user's real config path. Plugins must never create worktrees outside tool calls (cascade risk).
 
 ## Testing Decisions
 

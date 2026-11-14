@@ -4,9 +4,9 @@
 
 **Blocked by:** None — can start immediately
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-14), except branch protection (blocked on GitHub Pro for private repos)
 
-- [ ] The repo exists, private, with one initial commit containing only the files listed above
-- [ ] `main` is protected: CI required, no force push
-- [ ] CI passes on the initial commit
-- [ ] The README explains what the repo is (the user-level OpenCode config directory) and that `templates/project/TEMPLATE.md` is the example monorepo layout and architecture for app repos
+- [x] The repo exists, private, with one initial commit containing only the files listed above
+- [ ] `main` is protected: CI required, no force push — blocked: rulesets and classic branch protection both return "Upgrade to GitHub Pro or make this repository public"; ruleset command is ready to apply once upgraded
+- [x] CI passes on the initial commit
+- [x] The README explains what the repo is (the user-level OpenCode config directory) and that `templates/project/TEMPLATE.md` is the example monorepo layout and architecture for app repos

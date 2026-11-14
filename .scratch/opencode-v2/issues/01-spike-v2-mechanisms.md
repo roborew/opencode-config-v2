@@ -4,9 +4,9 @@
 
 **Blocked by:** 00
 
-**Status:** ready-for-agent
+**Status:** done (2026-11-14)
 
-- [ ] Each item has evidence in `docs/adr/0009-spike-results.md`
-- [ ] The blueprint and spec are amended wherever a mechanism failed
-- [ ] The local plugin runtime and package layout are confirmed and `package.json` is updated
-- [ ] The throwaway project is deleted; only the ADR and doc changes are committed
+- [x] Each item has evidence in `docs/adr/0009-spike-results.md`
+- [x] The blueprint and spec are amended wherever a mechanism failed
+- [x] The local plugin runtime and package layout are confirmed and `package.json` is updated
+- [x] The throwaway project is deleted; only the ADR and doc changes are committed

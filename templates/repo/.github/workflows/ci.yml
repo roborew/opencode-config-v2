@@ -1,0 +1,89 @@
+# Starting PR gate for an app repo, written once by repo-setup (D29, D31, D33).
+# The repo owns this file in full from here on: adapt the jobs to the repo,
+# and keep `ci-ok` last so branch protection can require the single check.
+# It runs the same isolated Compose path the flow uses (§9.2): one compose.yml,
+# test-target images, a throwaway _test database, nothing from the host, no
+# published ports, committed dummy env. No shared or reusable workflows.
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test suites (isolated Compose)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # TODO(repo): one step per test service from the AGENTS.md front matter
+      # (test.services, except e2e and smoke), using the same command
+      # oc-sandbox runs (test.commands.test). Delete the api/web examples if
+      # they don't match this repo.
+      - name: api-test
+        run: docker compose -f compose.yml --profile test run --rm api-test
+      - name: web-test
+        run: docker compose -f compose.yml --profile test run --rm web-test
+      # TODO(repo): client drift check — regenerate through the contract's
+      # generator service and fail on drift (enable once the service exists):
+      #   docker compose -f compose.yml --profile test run --rm api-client-gen
+      #   git diff --exit-code -- packages/api-client
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.yml --profile test down -v --remove-orphans
+
+  e2e:
+    name: E2E in Docker (Playwright against production images)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start production images (full profile, throwaway db)
+        run: docker compose -f compose.yml --profile full up -d --wait
+      - name: Run the e2e service
+        run: docker compose -f compose.yml --profile test run --rm e2e
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose -f compose.yml --profile test down -v --remove-orphans
+          docker compose -f compose.yml --profile full down -v --remove-orphans
+
+  smoke:
+    name: Production-image smoke check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # TODO(repo): this is the smoke path (§9.2): production images from the
+      # full profile against a throwaway db — migrations on start, waits for
+      # health. If compose.yml has a dedicated smoke service, run it instead:
+      #   docker compose -f compose.yml --profile full run --rm smoke
+      - name: Smoke check (production images, throwaway db)
+        run: docker compose -f compose.yml --profile full up -d --wait
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.yml --profile full down -v --remove-orphans
+
+  # The single required check (branch protection requires ci-ok). Runs last
+  # and fails if any job above failed or was cancelled.
+  ci-ok:
+    name: ci-ok
+    runs-on: ubuntu-latest
+    needs: [test, e2e, smoke]
+    # TODO(repo): add every new job to this needs list.
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Fail when any required job failed or was cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+      - name: All required jobs passed
+        run: echo "test, e2e and smoke all passed."

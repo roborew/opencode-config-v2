@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** files complete (2026-11-14); live scaffolding run pending (needs a target app repo, with Robin)
 
 - [ ] Every change is shown, and nothing is applied without approval
 - [ ] On a non-FastAPI stack, the test contract runs with only Docker installed

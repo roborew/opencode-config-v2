@@ -1,0 +1,14 @@
+{
+  "_generated": "Hint, not a label: area:<app> labels are not enumerated here. oc-github creates them on demand from the target repo's AGENTS.md front matter apps: keys. Skip every key starting with '_' when creating labels.",
+  "prd": "PRD umbrella issue for one feature: problem, solution, user stories, spec link, slices, out of scope. Closes when its last slice merges.",
+  "slice": "One vertical slice of a PRD — every layer it needs in one PR, mergeable to main on its own.",
+  "area:db": "Touches migrations or the database schema; changes follow expand/contract.",
+  "area:infra": "Touches infra, CI workflows or deployment wiring.",
+  "area:docs": "Documentation-only change.",
+  "risk:security": "Security-sensitive slice; adds the security-auditor review.",
+  "status:ready": "All blockers closed; waiting to be built.",
+  "status:in-progress": "A slice session is building it.",
+  "status:in-review": "PR open; waiting on review and the PR monitor.",
+  "status:blocked": "Cannot proceed; see the issue body for the reason.",
+  "flag-removal": "Removes a feature flag introduced by an earlier slice."
+}

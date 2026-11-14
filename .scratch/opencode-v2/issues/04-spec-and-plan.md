@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** files complete (2026-11-14); live /spec → /plan verification pending (needs model auth + one of Robin's real app repos)
 
 - [ ] The transcript shows `@`-loaded interview-me and spec-driven-development for `/spec`, and planning-and-task-breakdown and oc-github for `/plan`
 - [ ] No issues are created before an unambiguous approval

@@ -28,6 +28,8 @@ no flow reference material.
    `risk:security` / `flag-removal` where they apply, and `status:ready`.
 3. Record dependencies as GitHub blocking relationships where available;
    otherwise as the "Blocked by" section of the body.
+4. Append `- #<n> — <title>` to the PRD issue's Slices section (`gh issue edit
+   <prd> --body-file`) as each slice is created.
 
 ## Opening the PR
 
@@ -42,6 +44,8 @@ The full set lives in `templates/labels.json` (config only): `prd`, `slice`,
 `area:<app>`, `area:db`, `area:infra`, `area:docs`, `risk:security`,
 `status:ready|in-progress|in-review|blocked`, `flag-removal`. Missing labels are
 created on first use; `area:<app>` names always come from the target repo's
-`AGENTS.md`.
+`AGENTS.md`. The `_generated` key in `labels.json` is a hint about those
+on-demand `area:<app>` labels, not a label — skip every key starting with `_`
+when creating labels.
 
 When a PRD's last slice merges, close the PRD issue (`gh issue close <prd>`).

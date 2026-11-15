@@ -67,6 +67,11 @@ by the phase table, permissions or command templates.
 - **"OpenCode server unreachable"** vs **"path is not a git worktree"** — the
   first needs a server restart; the second is recoverable: `git worktree prune`
   and retry once.
+- **MCP servers** — `mcpjungle` connects to Robin's MCP gateway with
+  `MCPJUNGLE_TOKEN` from the environment; a 401 "invalid MCP client token"
+  means the variable is unset or stale — set it (shell env or server env) and
+  restart OpenCode, then check `/mcps` shows it connected. `browse` is the
+  Mac-local browsing companion; the server overrides repoint or disable it.
 - **Plugin logs** — start the server with `opencode serve --print-logs`; every
   plugin logs under `[oc-…]`. `sandbox_test` output tails 200 lines with
   secrets redacted.

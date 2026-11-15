@@ -47,6 +47,34 @@
   "worktree": {
     "directory": "~/.opencode-worktrees"
   },
+  // MCP servers. mcpjungle is the gateway to Robin's MCP sources (remote,
+  // bearer-token auth — the token lives in the environment, never in this
+  // public repo). browse is OpenCode's browsing companion on the Mac; the
+  // opencode-server overrides disable or repoint it where the binary differs.
+  "mcp": {
+    "servers": {
+      "mcpjungle": {
+        "type": "remote",
+        "url": "https://mcpjungle.roborew.xyz/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Bearer {env:MCPJUNGLE_TOKEN}"
+        }
+      },
+      "browse": {
+        "type": "local",
+        "command": [
+          "/Users/robo/.local/bin/browse",
+          "mcp"
+        ],
+        "cwd": "~",
+        "pool": true,
+        "environment": {
+          "OPENCODE_BROWSER_RUNTIME": "auto-update"
+        }
+      }
+    }
+  },
   "agents": {
     "plan": {
       "model": "opencode/claude-opus-5-5",

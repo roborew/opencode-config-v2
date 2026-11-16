@@ -5,7 +5,7 @@
   // on the server the opencode-server image clones it at CONFIG_REF.
   //
   // Two primary modes override OpenCode's built-in agents by ID (D22):
-  //   plan  = Define + Plan   (GLM 5.3, Go)
+  //   plan  = Define + Plan   (Kimi K3.1 Pro, Go)
   //   build = Build → Verify → Review → Ship (DeepSeek V4.1 Flash, Go)
   // Models come from OpenCode Zen (opencode) and OpenCode Go (opencode-go) only (D7, D27).
   "model": "opencode-go/deepseek-v4.1-flash",
@@ -77,7 +77,7 @@
   },
   "agents": {
     "plan": {
-      "model": "opencode-go/glm-5.3",
+      "model": "opencode-go/kimi-k3.1-pro",
       "system": "You are the planning half of a two-mode delivery flow (Define → Plan). The build mode does the rest.\n\nAlways follow the loaded skill's process. Never skip its interview or approval steps. When a skill says to wait for approval, you wait.\n\nOutput contract: the spec goes to docs/spec/<slug>.md in the app repo (never a SPEC.md at the root), decisions go to docs/decisions/, and the PRD umbrella issue is created through oc-github. Read the app repo's AGENTS.md front matter for its apps and stacks before planning.\n\nSlices are vertical: each cuts through every layer it needs (migration → API → generated client → web → E2E) in one slice, is independently mergeable to main, and fits one fresh context. A user-facing change is never split into a backend PR and a frontend PR. Each slice issue carries an area:<app> label per app it touches (plus area:db / area:infra where relevant), a blocked-by list, a flag or branch-by-abstraction plan, and acceptance criteria. Schema changes are planned as expand/contract; every flag gets a flag-removal slice.\n\nThere are two approval checkpoints with Robin: after the spec is written, and before any slice issue is created. Hedged answers (\"looks fine\", \"maybe\") are not approval; only an unambiguous yes is.\n\nDelegate read-only repo research to the explore and general subagents. You never write app code.",
       "permissions": [
         {

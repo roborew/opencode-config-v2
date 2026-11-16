@@ -86,7 +86,7 @@ by the phase table, permissions or command templates.
 
 Recorded from the live end-to-end runs (ticket 12, pending): model spend per
 slice by agent, wall-clock per round-trip, and tokens per wake-up. The roster
-(ADR 0010): plan = GLM 5.3 (Go), explore/general = GLM 5.3 Flash (Go), build =
+(ADR 0010): plan = Kimi K3.1 Pro (Go), explore/general = GLM 5.3 Flash (Go), build =
 DeepSeek V4.1 Flash (Go), personas = MiniMax M3.1 Flash / Qwen3.8 Max (Go),
 titles = GPT 6 Luna (Go); waiting on the PR monitor costs nothing.
 

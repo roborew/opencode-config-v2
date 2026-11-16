@@ -13,7 +13,7 @@ Robin wants a **brand-new repo, `opencode-config-v2`, started from an empty `git
 
 A clean-slate, v2-only config branch with two primary modes, which are the built-in OpenCode agents overridden by ID:
 
-- **`plan`** (GLM 5.3, Go; ADR 0010). `/spec` interviews and writes the spec, then opens the PRD umbrella issue. After Robin approves, `/plan` breaks the spec into vertical-slice sub-issues with blockers, `area:*` labels, a flag plan and acceptance criteria.
+- **`plan`** (Kimi K3.1 Pro, Go; ADR 0010). `/spec` interviews and writes the spec, then opens the PRD umbrella issue. After Robin approves, `/plan` breaks the spec into vertical-slice sub-issues with blockers, `area:*` labels, a flag plan and acceptance criteria.
 - **`build`** (DeepSeek V4.1 Flash, Go). Run in the main checkout, `/build` picks unblocked slices (at most 3), creates one worktree off `main` per slice and opens a slice session. In each slice session, `/build #N` runs RED → GREEN → verify in the sandbox → local review (addy `code-reviewer`, plus `security-auditor` when risky paths change) → opens the PR. The PR monitor then loops on CodeRabbit comments and GitHub Actions until both are clean. Robin merges.
 
 Skills are loaded deterministically. Commands and kickoff prompts name them with `@skill-id`, and the slice's `area:<app>` labels add each app's domain skills and its own `.agents/skills/`. App repos use the monorepo layout and architecture from Robin's Project Template (`templates/project/TEMPLATE.md`): `apps/` with a Dockerfile per app, `packages/` for the generated API client, `infra/`, `scripts/`, `docs/`. Slices are vertical through that stack (migration → API → generated client → web → E2E) in one PR. **Every test run is fully isolated in Docker**, built only from the repo's own Dockerfiles and Compose test contract, and assumes nothing from the machine it runs on. On the server, where OpenCode itself runs in Docker, each slice gets its own Sysbox container. On the Mac, Docker Compose runs directly with a per-slice project. GitHub Actions runs the same isolated test run as the final gate, and deploys the separate app images.
@@ -23,7 +23,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 ### Define and plan
 
 1. As Robin, I want `/spec <idea>` to interview me before writing anything, so that the spec reflects what I actually want and not the model's guess.
-2. As Robin, I want the spec written by a strong planning model (GLM 5.3, Go; ADR 0010), so that the costly reasoning happens once, up front.
+2. As Robin, I want the spec written by a strong planning model (Kimi K3.1 Pro, Go; ADR 0010), so that the costly reasoning happens once, up front.
 3. As Robin, I want the planning agent's read-only research done by GLM 5.3 Flash subagents, so that repo exploration stays cheap.
 4. As Robin, I want the spec saved under `docs/spec/` in the app monorepo (decisions under `docs/decisions/`, as in my Project Template), with a PRD umbrella issue linking to it, so that the spec is versioned next to the code and GitHub tracks the work.
 5. As Robin, I want an explicit approval checkpoint between `/spec` and `/plan`, so that no slices are created from a spec I haven't approved.
@@ -112,7 +112,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 - **App repo layout:** the monorepo layout and architecture from Robin's Project Template (`templates/project/TEMPLATE.md`). Only layout and architecture apply. The template's testing section doesn't set how the flow tests.
 - **Test contract:** exactly one `compose.yml` per repo, with the template's dev, test and full profiles. The flow only uses the Docker path (test and full profiles plus smoke). It runs every app, its test dependencies (test database and so on), test runners, the client generator and E2E from the repo's own Dockerfiles, with committed dummy env, no published ports and a caller-set project name. The same file is used in Sysbox (server), local Docker (Mac) and GitHub Actions. Compose is for development and testing only. Production images are built and deployed separately by GitHub Actions.
 - **Vertical slice order:** migration (expand) → API RED/GREEN → regenerate the client → web RED/GREEN → E2E → gate.
-- **Model roster:** `plan` uses GLM 5.3 (Go). `explore`/`general` use GLM 5.3 Flash (Go). `build` uses DeepSeek V4.1 Flash (Go). `code-reviewer` uses MiniMax M3.1 Flash (Go), with Kimi K2.7 Code as an alternative. `security-auditor` uses Qwen3.8 Max (Go). UI/vision uses Gemini 3.8 Flash (Zen). Titles use GPT 6 Luna (Go). (Updated 2026-11-16, ADR 0010.)
+- **Model roster:** `plan` uses Kimi K3.1 Pro (Go). `explore`/`general` use GLM 5.3 Flash (Go). `build` uses DeepSeek V4.1 Flash (Go). `code-reviewer` uses MiniMax M3.1 Flash (Go), with Kimi K2.7 Code as an alternative. `security-auditor` uses Qwen3.8 Max (Go). UI/vision uses Gemini 3.8 Flash (Zen). Titles use GPT 6 Luna (Go). (Updated 2026-11-16, ADR 0010.)
 
 ### To be confirmed by the spike (ticket 01)
 

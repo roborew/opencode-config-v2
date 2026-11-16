@@ -85,10 +85,10 @@ by the phase table, permissions or command templates.
 ## Cost and time per slice
 
 Recorded from the live end-to-end runs (ticket 12, pending): model spend per
-slice by agent, wall-clock per round-trip, and tokens per wake-up. The roster:
-plan = Claude Opus 5.5 (Zen), build = DeepSeek V4.1 Flash (Go), personas =
-MiniMax M3 / Qwen3.8 Max (Go), titles = GPT 6 Luna (Go); waiting on the PR
-monitor costs nothing.
+slice by agent, wall-clock per round-trip, and tokens per wake-up. The roster
+(ADR 0010): plan = GLM 5.3 (Go), explore/general = GLM 5.3 Flash (Go), build =
+DeepSeek V4.1 Flash (Go), personas = MiniMax M3.1 Flash / Qwen3.8 Max (Go),
+titles = GPT 6 Luna (Go); waiting on the PR monitor costs nothing.
 
 ## Dependencies and supply chain
 

@@ -101,7 +101,7 @@ The shape below follows the 2.0 [config docs](https://opencode.ai/docs/config/).
 
   "agents": {
     "plan": {
-      "model": "opencode/claude-opus-5-5",
+      "model": "opencode-go/glm-5.3",
       "system": "<§4.1>",
       "permissions": [/* §4.1 */],
     },
@@ -110,8 +110,8 @@ The shape below follows the 2.0 [config docs](https://opencode.ai/docs/config/).
       "system": "<§4.2>",
       "permissions": [/* §4.2 */],
     },
-    "explore": { "model": "opencode-go/glm-5.3" },
-    "general": { "model": "opencode-go/glm-5.3" },
+    "explore": { "model": "opencode-go/glm-5.3-flash" },
+    "general": { "model": "opencode-go/glm-5.3-flash" },
     "title": { "model": "opencode-go/gpt-6-luna" }, // confirmed: hidden agents accept a model override
   },
 
@@ -138,15 +138,22 @@ Markdown agents in `agents/` accept the same fields as `agents` entries (confirm
 
 ### Model roster
 
-| Agent                     | Model ID                                                    | Price per 1M (in/out)                                                             |
-| ------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| plan                      | `opencode/claude-opus-5-5`                                  | $4 / $20                                                                          |
-| explore, general          | `opencode-go/glm-5.3`                                       | $1.40 / $4.40                                                                     |
-| build                     | `opencode-go/deepseek-v4.1-flash`                           | $0.15/$0.60 off-peak; $0.30/$1.20 peak (01:00–04:00 and 06:00–10:00 UTC, Mon–Fri) |
-| code-reviewer             | `opencode-go/minimax-m3` (alt `opencode-go/kimi-k2.7-code`) | $0.30/$1.20 (alt $0.95/$4)                                                        |
-| security-auditor          | `opencode-go/qwen3.8-max`                                   | $2 / $6                                                                           |
-| UI/vision work (optional) | `opencode/gemini-3.8-flash`                                 | $0.75 / $3.75                                                                     |
-| title                     | `opencode-go/gpt-6-luna`                                    | $0.10 / $0.50                                                                     |
+| Agent                     | Model ID                                                            | Price per 1M (in/out)                                                             |
+| ------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| plan                      | `opencode-go/glm-5.3`                                               | $1.40 / $4.40 ($0.26 cached read)                                                 |
+| explore, general          | `opencode-go/glm-5.3-flash`                                         | $0.15 / $0.50 ($0.03 cached read)                                                 |
+| build                     | `opencode-go/deepseek-v4.1-flash`                                   | $0.15/$0.60 off-peak; $0.30/$1.20 peak (01:00–04:00 and 06:00–10:00 UTC, Mon–Fri) |
+| code-reviewer             | `opencode-go/minimax-m3.1-flash` (alt `opencode-go/kimi-k2.7-code`) | $0.15/$0.60 (alt $0.95/$4)                                                        |
+| security-auditor          | `opencode-go/qwen3.8-max`                                           | $2 / $6                                                                           |
+| UI/vision work (optional) | `opencode/gemini-3.8-flash`                                         | $0.75 / $3.75                                                                     |
+| title                     | `opencode-go/gpt-6-luna`                                            | $0.10 / $0.50                                                                     |
+
+Roster updated 2026-11-16 ([ADR 0010](../adr/0010-model-roster-reassessment.md)):
+planning moved from Claude Opus 5.5 (Zen) to GLM 5.3, exploration to GLM 5.3
+Flash, and code review to MiniMax M3.1 Flash. Prices from the
+[Go docs](https://opencode.ai/docs/go/); Go Plus monthly limits: GLM 5.3 $120,
+GLM 5.3 Flash $180, MiniMax M3.1 Flash $80, Qwen3.8 Max $60, DeepSeek V4.1
+Flash $200.
 
 **Setup Robin does himself:** run `/connect` for OpenCode Go and Zen. Then, in Go's **Settings › Privacy › Regions**, choose **Global**; DeepSeek V4.1 Flash needs this ([Go docs](https://opencode.ai/docs/go/)).
 

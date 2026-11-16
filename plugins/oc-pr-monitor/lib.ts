@@ -81,6 +81,20 @@ export function wakeText(slice: number, pr: number, summary: WakeSummary, round:
   return parts.join("\n")
 }
 
+/**
+ * Normalize GitHub CheckRun conclusions and StatusContext states at the API
+ * boundary, so all monitor decisions use the same internal vocabulary.
+ * Sources: https://docs.github.com/en/rest/checks/runs?apiVersion=2022-11-28#create-a-check-run
+ * https://docs.github.com/en/rest/commits/statuses?apiVersion=2022-11-28#create-a-commit-status
+ */
+function normalizeCheckState(value: unknown): string {
+  const state = String(value ?? "pending").toLowerCase()
+  if (state === "success") return "pass"
+  if (["failure", "error", "timed_out", "action_required", "stale"].includes(state)) return "fail"
+  if (state === "skipped") return "skipping"
+  return state
+}
+
 /** Extract the snapshot from a GitHub graphql response for a PR. */
 export function parsePRGraphql(json: any): PRSnapshot {
   const pr = json?.data?.repository?.pullRequest
@@ -92,7 +106,7 @@ export function parsePRGraphql(json: any): PRSnapshot {
   const rawChecks: any[] = pr?.statusCheckRollup?.contexts ?? []
   const checks: CheckSnapshot[] = rawChecks.map((c: any) => ({
     name: String(c?.name ?? c?.context ?? "check"),
-    state: String(c?.conclusion ?? c?.state ?? "pending").toLowerCase(),
+    state: normalizeCheckState(c?.conclusion ?? c?.state),
   }))
   return { threads, checks, state: String(pr?.state ?? "OPEN").toUpperCase() }
 }

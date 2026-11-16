@@ -78,7 +78,67 @@ describe("parsePRGraphql", () => {
     const snapshot = parsePRGraphql(json)
     expect(snapshot.state).toBe("OPEN")
     expect(snapshot.threads).toEqual([{ id: "RT_1", resolved: false, lastBody: "please fix" }])
-    expect(snapshot.checks.map((c) => [c.name, c.state])).toEqual([["ci-ok", "success"], ["status", "failure"]])
+    expect(snapshot.checks.map((c) => [c.name, c.state])).toEqual([["ci-ok", "pass"], ["status", "fail"]])
     expect(parsePRGraphql({}).threads).toEqual([])
+  })
+
+  it("normalizes every terminal GitHub check state before making monitor decisions", () => {
+    const contexts = [
+      { name: "success", conclusion: "SUCCESS" },
+      { name: "failure", conclusion: "FAILURE" },
+      { name: "timeout", conclusion: "TIMED_OUT" },
+      { name: "action", conclusion: "ACTION_REQUIRED" },
+      { name: "stale", conclusion: "STALE" },
+      { name: "cancelled", conclusion: "CANCELLED" },
+      { name: "skipped", conclusion: "SKIPPED" },
+      { name: "neutral", conclusion: "NEUTRAL" },
+      { name: "pending", conclusion: null },
+      { context: "status-error", state: "ERROR" },
+      { context: "status-pending", state: "PENDING" },
+    ]
+    const snapshot = parsePRGraphql({
+      data: { repository: { pullRequest: { statusCheckRollup: { contexts } } } },
+    })
+
+    expect(snapshot.checks.map((c) => [c.name, c.state])).toEqual([
+      ["success", "pass"],
+      ["failure", "fail"],
+      ["timeout", "fail"],
+      ["action", "fail"],
+      ["stale", "fail"],
+      ["cancelled", "cancelled"],
+      ["skipped", "skipping"],
+      ["neutral", "neutral"],
+      ["pending", "pending"],
+      ["status-error", "fail"],
+      ["status-pending", "pending"],
+    ])
+  })
+
+  it("marks a real green GitHub response READY", () => {
+    const snapshot = parsePRGraphql({
+      data: {
+        repository: {
+          pullRequest: {
+            state: "OPEN",
+            reviewThreads: { nodes: [] },
+            statusCheckRollup: { contexts: [{ name: "ci-ok", conclusion: "SUCCESS" }] },
+          },
+        },
+      },
+    })
+
+    expect(isReady(snapshot)).toBe(true)
+  })
+
+  it.each(["FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STALE"])("wakes for a real GitHub %s check", (conclusion) => {
+    const previous = parsePRGraphql({
+      data: { repository: { pullRequest: { statusCheckRollup: { contexts: [{ name: "ci-ok", conclusion: null }] } } } },
+    })
+    const next = parsePRGraphql({
+      data: { repository: { pullRequest: { statusCheckRollup: { contexts: [{ name: "ci-ok", conclusion }] } } } },
+    })
+
+    expect(diffSnapshot(previous, next).failedChecks).toEqual([{ name: "ci-ok", state: "fail" }])
   })
 })

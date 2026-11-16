@@ -1,7 +1,7 @@
 # Spec: OpenCode v2 delivery flow (opencode-config-v2 + opencode-server)
 
 Status: ready-for-agent. Date: 2026-11-14. Repo: `roborew/opencode-config-v2` (new, empty).
-Companion files: `blueprint.md` (exact layout, IDs, contracts, templates), `decisions.md` (D1–D34), `../CONTEXT.md` (glossary), `../adr/`, and Robin's Project Template at `../../templates/project/TEMPLATE.md` (example monorepo layout and architecture).
+Companion files: `blueprint.md` (exact layout, IDs, contracts, templates), `decisions.md` (D1–D35), `../CONTEXT.md` (glossary), `../adr/`, and Robin's Project Template at `../../templates/project/TEMPLATE.md` (single-app and multi-app architecture guidance).
 
 ## Problem Statement
 
@@ -16,7 +16,7 @@ A clean-slate, v2-only config branch with two primary modes, which are the built
 - **`plan`** (Kimi K3.1 Pro, Go; ADR 0010). `/spec` interviews and writes the spec, then opens the PRD umbrella issue. After Robin approves, `/plan` breaks the spec into vertical-slice sub-issues with blockers, `area:*` labels, a flag plan and acceptance criteria.
 - **`build`** (DeepSeek V4.1 Flash, Go). Run in the main checkout, `/build` picks unblocked slices (at most 3), creates one worktree off `main` per slice and opens a slice session. In each slice session, `/build #N` runs RED → GREEN → verify in the sandbox → local review (addy `code-reviewer`, plus `security-auditor` when risky paths change) → opens the PR. The PR monitor then loops on CodeRabbit comments and GitHub Actions until both are clean. Robin merges.
 
-Skills are loaded deterministically. Commands and kickoff prompts name them with `@skill-id`, and the slice's `area:<app>` labels add each app's domain skills and its own `.agents/skills/`. App repos use the monorepo layout and architecture from Robin's Project Template (`templates/project/TEMPLATE.md`): `apps/` with a Dockerfile per app, `packages/` for the generated API client, `infra/`, `scripts/`, `docs/`. Slices are vertical through that stack (migration → API → generated client → web → E2E) in one PR. **Every test run is fully isolated in Docker**, built only from the repo's own Dockerfiles and Compose test contract, and assumes nothing from the machine it runs on. On the server, where OpenCode itself runs in Docker, each slice gets its own Sysbox container. On the Mac, Docker Compose runs directly with a per-slice project. GitHub Actions runs the same isolated test run as the final gate, and deploys the separate app images.
+Skills are loaded deterministically. Commands and kickoff prompts name them with `@skill-id`, and the slice's `area:<app>` labels add each logical component's domain skills and any applicable scoped `.agents/skills/`. Each project has one app repo; Robin's Project Template (`templates/project/TEMPLATE.md`) guides framework-native single-app layouts and multi-app monorepos without requiring `apps/`, `packages/`, a separate API or a particular stack. Slices are vertical through every applicable layer (for example migration → API → generated client → web → E2E) in one PR, skipping layers and artifacts the project does not have. **Every test run is fully isolated in Docker**, built only from the repo's own Dockerfiles and Compose test contract, and assumes nothing from the machine it runs on. On the server, where OpenCode itself runs in Docker, each slice gets its own Sysbox container. On the Mac, Docker Compose runs directly with a per-slice project. GitHub Actions runs the same isolated test run as the final gate, and deploys the separate app images.
 
 ## User Stories
 
@@ -25,13 +25,13 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 1. As Robin, I want `/spec <idea>` to interview me before writing anything, so that the spec reflects what I actually want and not the model's guess.
 2. As Robin, I want the spec written by a strong planning model (Kimi K3.1 Pro, Go; ADR 0010), so that the costly reasoning happens once, up front.
 3. As Robin, I want the planning agent's read-only research done by GLM 5.3 Flash subagents, so that repo exploration stays cheap.
-4. As Robin, I want the spec saved under `docs/spec/` in the app monorepo (decisions under `docs/decisions/`, as in my Project Template), with a PRD umbrella issue linking to it, so that the spec is versioned next to the code and GitHub tracks the work.
+4. As Robin, I want the spec saved under `docs/spec/` in the app repo (decisions under `docs/decisions/`, as in my Project Template), with a PRD umbrella issue linking to it, so that the spec is versioned next to the code and GitHub tracks the work.
 5. As Robin, I want an explicit approval checkpoint between `/spec` and `/plan`, so that no slices are created from a spec I haven't approved.
 6. As Robin, I want `/plan` to produce vertical slices that each cut through every layer and are independently mergeable to `main`, so that each PR is small, reviewable and safe.
 7. As Robin, I want each slice issue to list its blocking slices, so that `/build` only starts work that is ready.
-8. As Robin, I want each slice issue to carry an `area:<app>` label for every app it touches (plus `area:db` or `area:infra` where relevant), so that the right domain skills and that app's own `.agents/skills/` load automatically during build.
-   8a. As Robin, I want a user-facing change planned as one vertical slice through the whole stack (migration, API, generated client, web, E2E) and not as separate backend and frontend PRs, so that every PR delivers working behaviour.
-   8b. As Robin, I want API changes made contract-first, with the client regenerated and committed in the same slice, so that the frontend never hand-writes API types and CI catches drift.
+8. As Robin, I want each slice issue to carry an `area:<app>` label for every logical component it touches (plus `area:db` or `area:infra` where relevant), so that the right domain skills and any applicable scoped `.agents/skills/` load automatically during build.
+   8a. As Robin, I want a user-facing change planned as one vertical slice through every applicable layer (for example migration, API, generated client, web, E2E) and not as separate tier-only PRs, so that every PR delivers working behaviour without inventing absent layers.
+   8b. As Robin, I want changes across an explicit API contract made contract-first, with any generated client regenerated and committed in the same slice, so that consumers never hand-write generated API types and CI catches drift. Repositories without that boundary need no client generator.
 9. As Robin, I want each slice to state its flag or branch-by-abstraction plan and acceptance criteria, so that incomplete behaviour stays dark on `main`.
 10. As Robin, I want every flag to come with a removal slice, so that flags don't pile up.
 11. As Robin, I want schema changes planned as expand/contract slices, so that each migration is safe to merge on its own.
@@ -81,7 +81,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 40. As Robin, I want addy's skills vendored unmodified plus an `addy-sync` skill that pulls upstream changes, so that I get addy's improvements without merge pain.
 41. As Robin, I want my own integration skills (`oc-worktree`, `oc-sandbox`, `oc-github`, `oc-pr-monitor`) kept separate from addy's, so that the boundary between upstream and mine stays obvious.
 42. As Robin, I want the new repo to start from an empty `git init` with no files from earlier config repos, so that there is one way to work and no legacy to maintain.
-43. As Robin, I want a repo setup skill that scaffolds or upgrades an app repo to the monorepo layout and architecture from my Project Template (internals chosen per stack), plus the Compose test contract, the `AGENTS.md` front matter, the CI workflow and branch protection on `ci-ok`, with no flow templates copied into the repo,
+43. As Robin, I want a repo setup skill that scaffolds or upgrades an app repo using my Project Template's single-app and multi-app guidance (preserving idiomatic structure and choosing internals per stack), plus the Compose test contract, the `AGENTS.md` front matter, the CI workflow and branch protection on `ci-ok`, with no flow templates copied into the repo,
 44. As Robin, I want server-only behaviour (gitdir rewrite, delete guard, localhost rewrite) to live in opencode-server overrides, so that the config stays universal.
 45. As Robin, I want the server image to clone `opencode-config-v2` and drop the CodeRabbit CLI and preview/tunnel settings, so that the server matches the new flow.
 
@@ -109,9 +109,9 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 
 - **Slice naming:** issue `#N`, branch and worktree `slice/<N>-<slug>`, Compose project and sandbox ID derived from `N` (short, under the 64-byte hostname cap).
 - **Issue labels:** `prd`, `slice`, `area:web|api|db|infra|docs`, `risk:security`, and status `ready|in-progress|blocked|in-review`. A slice's dependencies are stored as GitHub sub-issue/blocking relationships where available, otherwise as a "Blocked by" section.
-- **App repo layout:** the monorepo layout and architecture from Robin's Project Template (`templates/project/TEMPLATE.md`). Only layout and architecture apply. The template's testing section doesn't set how the flow tests.
-- **Test contract:** exactly one `compose.yml` per repo, with the template's dev, test and full profiles. The flow only uses the Docker path (test and full profiles plus smoke). It runs every app, its test dependencies (test database and so on), test runners, the client generator and E2E from the repo's own Dockerfiles, with committed dummy env, no published ports and a caller-set project name. The same file is used in Sysbox (server), local Docker (Mac) and GitHub Actions. Compose is for development and testing only. Production images are built and deployed separately by GitHub Actions.
-- **Vertical slice order:** migration (expand) → API RED/GREEN → regenerate the client → web RED/GREEN → E2E → gate.
+- **App repo layout:** one repo per project, using Robin's Project Template (`templates/project/TEMPLATE.md`) as guidance for either a root-level single app or multiple apps. Nested `apps/`, shared `packages/`, generated clients and stack-specific conventions apply only when the project needs them. The template's testing section doesn't set how the flow tests.
+- **Test contract:** exactly one `compose.yml` per repo, with the template's dev, test and full profiles. The flow only uses the Docker path (test and full profiles plus smoke). It runs every app, its test dependencies (test database and so on), test runners, any client generator and applicable E2E from the repo's own Dockerfiles, with committed dummy env, no published ports and a caller-set project name. The same file is used in Sysbox (server), local Docker (Mac) and GitHub Actions. Compose is for development and testing only. Production images are built and deployed separately by GitHub Actions.
+- **Vertical slice order:** every applicable layer — for example migration (expand) → API RED/GREEN → regenerate the client → web RED/GREEN → E2E → gate. Skip layers and generated artifacts that do not exist.
 - **Model roster:** `plan` uses Kimi K3.1 Pro (Go). `explore`/`general` use GLM 5.3 Flash (Go). `build` uses DeepSeek V4.1 Flash (Go). `code-reviewer` uses MiniMax M3.1 Flash (Go), with Kimi K2.7 Code as an alternative. `security-auditor` uses Qwen3.8 Max (Go). UI/vision uses Gemini 3.8 Flash (Zen). Titles use GPT 6 Luna (Go). (Updated 2026-11-16, ADR 0010.)
 
 ### To be confirmed by the spike (ticket 01)
@@ -145,7 +145,7 @@ Resolved 2026-11-14 — evidence and consequences in `../adr/0009-spike-results.
 - Local CodeRabbit CLI review.
 - Releases (done by tag, outside the pipeline).
 - Kilo, OpenRouter and fallback agents.
-- Cross-repo fanout. Each app moves to its own monorepo, and moving existing repos is separate work done per app with `repo-setup`.
+- Cross-repo fanout. Each project uses one repo, with either a single-app or multi-app layout; moving existing repos is separate work done per project with `repo-setup`.
 - Hard multi-tenant isolation. Sysbox is sized for trusted code on Robin's own server.
 
 ## Further Notes

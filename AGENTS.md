@@ -30,31 +30,33 @@ Skills load deterministically: command templates name them with `@skill-id`,
 and the `oc-skills` prompt hook adds the slice's base and `area:*` skills. This
 table is the soft fallback when work arrives outside a command.
 
-| Trigger                                   | Skills added                                                                                                                                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/spec`                                   | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                        |
-| `/plan`                                   | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                       |
-| `/build` (main checkout)                  | oc-worktree                                                                                                                                                                                                         |
-| `/build #N` (slice) base                  | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                |
-| label `area:<app>` (one per `apps/<app>`) | the skills mapped to that app in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
-| any `area:<app>`                          | that app's own `apps/<app>/.agents/skills/` (added by the oc-skills hook)                                                                                                                                           |
-| label `area:db`                           | deprecation-and-migration (expand/contract)                                                                                                                                                                         |
-| label `area:infra`                        | ci-cd-and-automation                                                                                                                                                                                                |
-| label `risk:security`                     | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                            |
-| on test failure                           | debugging-and-error-recovery                                                                                                                                                                                        |
-| `/review`                                 | code-review-and-quality, code-simplification                                                                                                                                                                        |
-| `/ship`                                   | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                               |
+| Trigger                                        | Skills added                                                                                                                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/spec`                                        | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                              |
+| `/plan`                                        | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                             |
+| `/build` (main checkout)                       | oc-worktree                                                                                                                                                                                                               |
+| `/build #N` (slice) base                       | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                      |
+| label `area:<app>` (one per logical component) | the skills mapped to that component in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
+| any `area:<app>`                               | that app's own `apps/<app>/.agents/skills/` (added by the oc-skills hook)                                                                                                                                                 |
+| label `area:db`                                | deprecation-and-migration (expand/contract)                                                                                                                                                                               |
+| label `area:infra`                             | ci-cd-and-automation                                                                                                                                                                                                      |
+| label `risk:security`                          | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                                  |
+| on test failure                                | debugging-and-error-recovery                                                                                                                                                                                              |
+| `/review`                                      | code-review-and-quality, code-simplification                                                                                                                                                                              |
+| `/ship`                                        | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                                     |
 
 Every skill named here must exist on disk (`skills/addy/` or `skills/oc/`);
 config verification in CI enforces it.
 
 ## App repos
 
-App repos use the monorepo layout and architecture from
-`templates/project/TEMPLATE.md` (layout only), plus the test contract and
-app-repo rules in `docs/plan/blueprint.md` §9. App repos hold **facts about
-themselves only** (D33): code, `compose.yml`, Dockerfiles, CI, docs, per-app
-skills and the `AGENTS.md` front matter. All flow reference material (issue and
+Each project has one app repo, whose internals may be a single application or a
+multi-app monorepo. `templates/project/TEMPLATE.md` provides architecture
+guidance for both without requiring `apps/`, `packages/`, a separate API or any
+particular framework. The test contract and app-repo rules are in
+`docs/plan/blueprint.md` §9. App repos hold **facts about themselves only**
+(D33): code, `compose.yml`, Dockerfiles, CI, docs, applicable scoped skills and
+the `AGENTS.md` front matter. All flow reference material (issue and
 PR bodies, labels) lives in this config under `skills/oc/oc-github/templates/`.
 
 ---
@@ -68,11 +70,11 @@ agent working here, read this half first and follow it.
 
 - **It is the OpenCode config directory.** It holds no app code (D34) — only
   what OpenCode needs to run, plus config verification.
-- **App repos use `templates/project/TEMPLATE.md`** as the example monorepo
-  layout and architecture (zones, per-app Dockerfiles, contract-first API,
-  docs next to the code). The template covers layout and architecture only;
-  how the flow tests is set by the test contract in `docs/plan/blueprint.md`
-  (§7.2, §9.2).
+- **App repos use `templates/project/TEMPLATE.md` as architecture guidance.**
+  One repo may hold a root-level single app or several apps; framework-native
+  layouts are valid and API/client boundaries apply only when they exist. The
+  template covers architecture only; how the flow tests is set by the test
+  contract in `docs/plan/blueprint.md` (§7.2, §9.2).
 
 ## How work happens here
 

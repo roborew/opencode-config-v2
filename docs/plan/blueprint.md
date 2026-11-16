@@ -19,7 +19,7 @@ This repo **is** the user-level OpenCode config directory.
 - On the Mac: clone it to `~/.config/opencode`. OpenCode then loads `opencode.jsonc`, `agents/`, `commands/`, `skills/` and `plugins/` from there for every project.
 - On the server: the opencode-server image clones it at `CONFIG_REF` into the config directory. Server-only extras are merged from opencode-server's own overrides (see §11).
 
-App repos never hold a copy of this config. Every app repo uses the **monorepo layout and architecture** from Robin's Project Template (`templates/project/TEMPLATE.md`, an example kept verbatim in this repo), plus the test contract and the app-repo rules in §9. Only the template's layout and architecture apply. How tests run is set by this flow (§7.2, §9.2), not by the template.
+App repos never hold a copy of this config. Every project has one app repo, but its internals may be a root-level single application or a multi-app monorepo. Robin's Project Template (`templates/project/TEMPLATE.md`) provides architecture guidance for both, plus the test contract and app-repo rules in §9. It does not require nested `apps/`, shared `packages/`, a separate API or a particular framework. How tests run is set by this flow (§7.2, §9.2), not by the template.
 
 ## 2. Repository layout
 
@@ -54,7 +54,7 @@ opencode-config-v2/
 │   ├── oc-sandbox/                # verification box + red/green evidence (§7.2)
 │   └── oc-pr-monitor/             # zero-token PR wait loop (§7.3)
 ├── templates/
-│   ├── project/TEMPLATE.md        # Robin's Project Template: example monorepo layout + architecture (verbatim)
+│   ├── project/TEMPLATE.md        # single-app and multi-app architecture guidance; examples, not a required skeleton
 │   └── repo/                      # what repo-setup writes into an app repo (§9.3)
 │       ├── AGENTS.md              # front matter skeleton (repo-specific facts only)
 │       └── .github/workflows/ci.yml   # starting point only; the repo owns it after setup
@@ -176,7 +176,7 @@ V4.1 Flash $200.
   1. You are the planning half of a two-mode delivery flow (Define → Plan). The `build` mode does the rest.
   2. Always follow the loaded skill's process. Don't skip its interview or approval steps.
   3. Output contract: the spec goes to `docs/spec/<slug>.md` in the app repo (not `SPEC.md` at the root), and ADRs go to `docs/decisions/`, and the PRD umbrella issue is created through `oc-github`.
-  4. Slices are vertical, each mergeable to `main` on its own, ≤ 1 fresh context of work, and each has `area:*` labels, a blocker list, a flag plan and acceptance criteria. A user-facing change is **one slice through the whole stack** (migration → API → generated client → web → E2E), never split into a backend PR and a frontend PR. Read the repo's `AGENTS.md` front matter for its apps and stacks.
+  4. Slices are vertical, each mergeable to `main` on its own, ≤ 1 fresh context of work, and each has `area:*` labels, a blocker list, a flag plan and acceptance criteria. A user-facing change is **one slice through every applicable layer** (for example migration → API → generated client → web → E2E), never split into tier-only PRs. Skip absent layers and generated artifacts; a self-contained full-stack app needs no imaginary backend or API client. Read the repo's `AGENTS.md` front matter for its logical components and stacks.
   5. Two approval checkpoints: after the spec, and before any slice issue is created. Treat hedged answers as not approved.
   6. Delegate read-only repo research to `explore`/`general`.
 
@@ -192,7 +192,7 @@ V4.1 Flash $200.
 - **System prompt outline:**
   1. You are the build half (Build → Verify → Review → Ship). Specs and slices come from `plan`. If a slice is ambiguous or doesn't converge, stop as BLOCKED, comment on the issue, and don't invent requirements.
   2. In the main checkout, `/build` coordinates only: `slice_start` for unblocked slices, then `slice_status`. Never implement there.
-  3. In a slice worktree, work through the slice in the vertical order from §9.3 (migration → API → generated client → web → E2E). For each acceptance criterion, follow addy's `/build` loop: a failing test-only commit (RED, through `sandbox_test`), then a code commit (GREEN). Every test runs in the isolated Docker setup through `oc-sandbox`, never on the host. Never edit or weaken a test to make it pass, and never hand-edit generated client code.
+  3. In a slice worktree, work through every applicable layer in the vertical order from §9.3 (for example migration → API → generated client → web → E2E), skipping layers and artifacts the repo or slice does not have. For each acceptance criterion, follow addy's `/build` loop: a failing test-only commit (RED, through `sandbox_test`), then a code commit (GREEN). Every test runs in the isolated Docker setup through `oc-sandbox`, never on the host. Never edit or weaken a test to make it pass, and never hand-edit declared generated code.
   4. Then call `code-reviewer` (and `security-auditor` when `risk:security` is set or risky paths change), fix or answer every finding, run `sandbox_gate` and `redgreen_check`, push, open the PR through `oc-github`, and hand over to `oc-pr-monitor`.
   5. Run tests only through `oc-sandbox` tools, never through raw docker.
 
@@ -220,22 +220,22 @@ Skills load in three layers, from strongest to weakest:
    - Otherwise do nothing. The command templates already cover `/spec` and `/plan`.
 3. **The global `AGENTS.md`** carries the same table, so the model knows which skill applies when work comes outside a command.
 
-**Per-app skills.** The Project Template puts agent context for each app in `apps/<app>/.agents/skills/`. `skills` config entries support **no globs** (confirmed, ADR 0009), and project `.agents/skills` discovery only searches from the current directory upwards, while slice sessions run at the repo root. So the `oc-skills` hook adds each `area:<app>` slice's app skills explicitly.
+**Scoped skills.** A single-app repo can use root `.agents/skills/`, discovered normally. When components have their own nested skills, such as `apps/<app>/.agents/skills/`, the `oc-skills` hook adds the slice's applicable skills explicitly: `skills` config entries support **no globs** (confirmed, ADR 0009), and project discovery only searches from the current directory upwards. Logical `apps:` keys in `AGENTS.md` do not require an `apps/` directory.
 
-| Trigger                                   | Skills added                                                                                                                                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/spec`                                   | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                        |
-| `/plan`                                   | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                       |
-| `/build` (main checkout)                  | oc-worktree                                                                                                                                                                                                         |
-| `/build #N` (slice) base                  | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                |
-| label `area:<app>` (one per `apps/<app>`) | the skills mapped to that app in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
-| any `area:<app>`                          | that app's own `apps/<app>/.agents/skills/` (see below)                                                                                                                                                             |
-| label `area:db`                           | deprecation-and-migration (expand/contract)                                                                                                                                                                         |
-| label `area:infra`                        | ci-cd-and-automation                                                                                                                                                                                                |
-| label `risk:security`                     | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                            |
-| on test failure                           | debugging-and-error-recovery                                                                                                                                                                                        |
-| `/review`                                 | code-review-and-quality, code-simplification                                                                                                                                                                        |
-| `/ship`                                   | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                               |
+| Trigger                                        | Skills added                                                                                                                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/spec`                                        | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                              |
+| `/plan`                                        | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                             |
+| `/build` (main checkout)                       | oc-worktree                                                                                                                                                                                                               |
+| `/build #N` (slice) base                       | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                      |
+| label `area:<app>` (one per logical component) | the skills mapped to that component in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
+| any `area:<app>`                               | applicable component-scoped `.agents/skills/` when present (root skills are discovered normally)                                                                                                                          |
+| label `area:db`                                | deprecation-and-migration (expand/contract)                                                                                                                                                                               |
+| label `area:infra`                             | ci-cd-and-automation                                                                                                                                                                                                      |
+| label `risk:security`                          | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                                  |
+| on test failure                                | debugging-and-error-recovery                                                                                                                                                                                              |
+| `/review`                                      | code-review-and-quality, code-simplification                                                                                                                                                                              |
+| `/ship`                                        | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                                     |
 
 ## 7. Plugins (TypeScript, `@opencode/plugin`)
 
@@ -256,13 +256,13 @@ Errors must tell "OpenCode server unreachable" (the server needs a restart) apar
 
 **Rule:** every test run happens in a fully isolated Docker setup, built from the repo's own Dockerfiles and its single `compose.yml` (§9.2). Nothing is taken from the machine running OpenCode: no host toolchains, no host env, no host services. That's what makes the result production-ready and the same everywhere.
 
-| Tool             | Input                                          | Output                             | Behaviour                                                                                                                                                                                                                                                                                 |
-| ---------------- | ---------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sandbox_up`     | `{ slice: string }`                            | `{ backend, id }`                  | Picks the backend (below). The ID is `s<N>-<6-char hash>`, kept under Docker's 64-byte hostname limit. Builds the test contract's images and warms them (dependencies up and healthy), so the first RED run isn't a cold build.                                                           |
-| `sandbox_test`   | `{ slice, service?: string, args?: string[] }` | `{ exit_code, passed, sha, tail }` | Runs one test service from the contract (default: the full suite) with optional focused args, for example one test file. Records `{sha, service, args, passed, at}` as evidence. `tail` is the last 200 lines with secrets redacted.                                                      |
-| `sandbox_gate`   | `{ slice }`                                    | `{ passed, steps[] }`              | The full pre-PR run: every test service in the contract, the client drift check and the production-image smoke check, all in the isolated setup.                                                                                                                                          |
-| `redgreen_check` | `{ slice }`                                    | `{ ok, violations[] }`             | For each commit `main..HEAD`: a commit that changes only test paths must have a failing evidence record; the next commit that changes non-test paths must have a passing one. Generated client code counts as neither. Test-path globs come from `AGENTS.md` front matter (`test_globs`). |
-| `sandbox_down`   | `{ slice }`                                    | `{ ok }`                           | Tears down the slice's Compose project with its volumes and destroys the box.                                                                                                                                                                                                             |
+| Tool             | Input                                          | Output                             | Behaviour                                                                                                                                                                                                                                                                                   |
+| ---------------- | ---------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandbox_up`     | `{ slice: string }`                            | `{ backend, id }`                  | Picks the backend (below). The ID is `s<N>-<6-char hash>`, kept under Docker's 64-byte hostname limit. Builds the test contract's images and warms them (dependencies up and healthy), so the first RED run isn't a cold build.                                                             |
+| `sandbox_test`   | `{ slice, service?: string, args?: string[] }` | `{ exit_code, passed, sha, tail }` | Runs one test service from the contract (default: the full suite) with optional focused args, for example one test file. Records `{sha, service, args, passed, at}` as evidence. `tail` is the last 200 lines with secrets redacted.                                                        |
+| `sandbox_gate`   | `{ slice }`                                    | `{ passed, steps[] }`              | The full pre-PR run: every test service in the contract, any declared generation drift check and the production-image smoke check, all in the isolated setup.                                                                                                                               |
+| `redgreen_check` | `{ slice }`                                    | `{ ok, violations[] }`             | For each commit `main..HEAD`: a commit that changes only test paths must have a failing evidence record; the next commit that changes non-test paths must have a passing one. Declared generated code counts as neither. Test-path globs come from `AGENTS.md` front matter (`test_globs`). |
+| `sandbox_down`   | `{ slice }`                                    | `{ ok }`                           | Tears down the slice's Compose project with its volumes and destroys the box.                                                                                                                                                                                                               |
 
 **Backends (the same test contract under both):**
 
@@ -297,21 +297,21 @@ Each is a short `SKILL.md` with `name` and `description` frontmatter. It describ
 - **oc-sandbox:** the red/green loop through `sandbox_test`, focused runs vs full runs, and reading `redgreen_check`.
 - **oc-pr-monitor:** handling a wake-up, the fix/reply rules and the round cap.
 - **addy-sync:** fetch addy at a target ref (default `main`), show the diff of `skills/addy/` and `references/` against `UPSTREAM.md`, apply only after Robin approves, update `UPSTREAM.md`, and flag any skill that was renamed or removed and is still referenced in §6 or in the permissions.
-- **repo-setup:** scaffold §9 into an app repo. Show every file and setting before applying it, and apply only after approval. Branch protection and labels go through `gh api`.
+- **repo-setup:** propose §9 setup for an app repo using its actual single-app or multi-app shape. Show every file and setting before applying it, and apply only after approval. Branch protection and labels go through `gh api`.
 
 ## 9. App repo contract
 
 ### 9.1 Layout and architecture: Robin's Project Template
 
-App repos use the monorepo **layout and architecture** shown in `templates/project/TEMPLATE.md` (an example taken from Rekalled):
+Every project uses one app repo. `templates/project/TEMPLATE.md` guides architecture without imposing the Rekalled monorepo as a skeleton:
 
-- **Zones:** `apps/` (deployable apps), `packages/` (shared or generated code such as `api-client`), `infra/`, `scripts/`, `docs/` (`spec/`, `decisions/`, `deployment/`), `.github/`.
-- **Each app has its own Dockerfile, image and lockfile.** Images are built and deployed separately by GitHub Actions. Production databases and other services can be external, or run as separate services.
-- **Contract-first API:** the backend exports OpenAPI, the typed client is generated into `packages/api-client` and committed, and the frontend never hand-writes API types.
-- **Layered backend, feature-based frontend.**
-- **Docs next to the code:** product specs in `docs/spec/`, ADRs in `docs/decisions/`, deployment docs in `docs/deployment/`.
+- **Single apps stay framework-native.** Next.js, TanStack Start and other full-stack apps can keep source and routes at the root. Single-tier apps, libraries and services also use their ecosystem's normal layout. No nested `apps/` or `packages/` is needed without real boundaries.
+- **Multi-app repos use meaningful components.** `apps/` can hold independently deployable apps and `packages/` genuinely shared or generated code. Workspace and build tooling follows the languages in use; Vite, pnpm, uv or any other tool is never presumed.
+- **Each actual deployable owns its build.** Its Dockerfile, runtime image and lockfile live at the root for a single app or with the component in a multi-app repo. Production databases and other services can be external or separate services.
+- **Contracts are conditional.** When a separate consumer and provider need an explicit API contract, OpenAPI plus a committed generated client is one good approach. A full-stack app with internal server functions needs no standalone backend schema, `packages/api-client` or generator service.
+- **Architecture is idiomatic and docs stay next to code.** Backend layering and frontend feature modules are options, not requirements. Product specs live in `docs/spec/`, ADRs in `docs/decisions/`, and deployment docs in `docs/deployment/`.
 
-Internals vary by stack (for example Rails instead of FastAPI). The template's testing section (§4) doesn't decide how the flow tests: §9.2 does. The `justfile` is optional, a shortcut for Robin. The flow never depends on it (D31).
+Existing manifests, framework entry points, tests and `AGENTS.md` determine what the repo is before any restructuring is proposed. The template's testing section (§4) doesn't decide how the flow tests: §9.2 does. The `justfile` is optional, a shortcut for Robin. The flow never depends on it (D31).
 
 ### 9.2 Test contract: one `compose.yml` per repo, fully isolated
 
@@ -319,56 +319,54 @@ This follows the template's §4: the standalone Docker test path.
 
 - **Every repo has exactly one Compose file, `compose.yml`, at the root** (D29), with the template's profiles:
   - **dev** (the default): dependencies only, for Robin's native inner loop. The flow never uses it.
-  - **test** (`just test-docker`): the test suites in containers built from each app's **test target**, against a throwaway `db-test`.
-  - **full** (`just full`): production images, a throwaway db, migrations on start, waits for health.
-  - The **smoke** run uses the production images and a throwaway db.
+  - **test** (`just test-docker`): applicable test suites in containers built from each actual app's **test target**, against throwaway dependencies such as `db-test` when a database exists.
+  - **full** (`just full`): production images and throwaway dependencies, with migrations on start when applicable and health waits.
+  - The **smoke** run uses the production images and throwaway dependencies.
   - There is no second Compose file and no override file.
 - **The flow always uses the Docker path, never the host path.** The host inner loop (`just test`, `just dev`) is Robin's, for working by hand. Every agent test run, red/green evidence and gate uses the test and full profiles plus smoke, inside the slice's sandbox.
 - **Test targets, not runtime images.** Test containers build from a test target in each app's Dockerfile (the dev environment plus source, never shipped). Runtime images exclude dev dependencies and tests.
-- **Test databases are guarded.** Tests refuse to run against a database whose name doesn't end in `_test`.
+- **Test databases are guarded.** Where a database exists, tests refuse to run against one whose name doesn't end in `_test`.
 - **Compose is for development and testing only, never production.** GitHub Actions builds, scans and deploys each app's runtime image separately. Production databases and services are external or run as separate services.
 - **Nothing is assumed from the host.** Test env values are committed dummies, and real secrets are never needed. No host ports are published, and the caller sets the project name (`-p <id>`).
 - **GitHub Actions runs the same test and smoke path on every PR** as the final gate (`ci-ok`).
-- **E2E in Docker (D32).** The test profile has an `e2e` service: the official Playwright image, pinned to the repo's `@playwright/test` version, running against the full-profile production images over the Compose network. This is the agents' only E2E path, and `just e2e` stays Robin's host path.
+- **Browser E2E in Docker when applicable (D32).** A repo with browser flows has an `e2e` service in the test profile: the official Playwright image, pinned to the repo's `@playwright/test` version, running against the full-profile production images over the Compose network. This is the agents' only E2E path, and `just e2e` stays Robin's host path.
 - **The flow calls Compose directly (D31).** Commands are declared in `AGENTS.md`, never `just`. An optional `justfile` wraps the same commands for Robin.
 
 ### 9.3 What lives in an app repo, and what doesn't (D33)
 
-An app repo only holds **facts about itself**: its code, `compose.yml`, Dockerfiles, CI workflow, `docs/spec|decisions|deployment`, per-app `.agents/skills/`, and the `AGENTS.md` front matter below. **No flow reference material lives in app repos**: no issue templates, PR template, `labels.json` or copies of flow skills. All of that lives in this config, under `skills/oc/oc-github/templates/`. `.github/` keeps only GitHub's own files, and the repo owns them in full: `workflows/` (`ci.yml` as the PR gate, `deploy.yml` with the app's own registry and deploy wiring outside this flow, and any others) and `dependabot.yml`. There's no shared or reusable workflow from the config. `repo-setup` writes a starting `ci.yml` once, and after that the repo maintains it. When `repo-setup` upgrades an existing repo, it proposes deleting the old `.github/ISSUE_TEMPLATE/*`, `pull_request_template.md` and `labels.yml`, and deletes them only after approval.
+An app repo only holds **facts about itself**: its code, `compose.yml`, Dockerfiles, CI workflow, `docs/spec|decisions|deployment`, applicable root or component-scoped `.agents/skills/`, and the `AGENTS.md` front matter below. **No flow reference material lives in app repos**: no issue templates, PR template, `labels.json` or copies of flow skills. All of that lives in this config, under `skills/oc/oc-github/templates/`. `.github/` keeps only GitHub's own files, and the repo owns them in full: `workflows/` (`ci.yml` as the PR gate, `deploy.yml` with the app's own registry and deploy wiring outside this flow, and any others) and `dependabot.yml`. There's no shared or reusable workflow from the config. `repo-setup` writes a starting `ci.yml` once, and after that the repo maintains it. When `repo-setup` upgrades an existing repo, it proposes deleting the old `.github/ISSUE_TEMPLATE/*`, `pull_request_template.md` and `labels.yml`, and deletes them only after approval.
 
-**Root `AGENTS.md`** front matter:
+**Root `AGENTS.md`** front matter (a single full-stack app example, not a required stack):
 
 ```markdown
 ---
 apps:
-  api: { kind: backend, stack: fastapi, skills: [api-and-interface-design] }
-  web:
+  app:
     {
-      kind: frontend,
-      stack: tanstack-start,
+      kind: fullstack,
+      stack: nextjs,
       skills: [frontend-ui-engineering, browser-testing-with-devtools],
     }
-contract: { generated: ["packages/api-client/**"], generator_service: "api-client-gen" }
 test:
   compose: compose.yml # always this file
   profiles: { test: test, full: full }
   commands: # what oc-sandbox runs; an optional justfile wraps the same commands
     test: "docker compose -f compose.yml --profile test run --rm {service} {args}"
     full: "docker compose -f compose.yml --profile full up -d --wait"
-  services: { all: "test", api: "api-test", web: "web-test", e2e: "e2e", smoke: "smoke" }
-test_globs: ["apps/*/tests/**", "apps/web/e2e/**", "apps/*/**/*.test.*", "apps/*/**/*_spec.rb"]
+  services: { all: "test", app: "app-test", e2e: "e2e", smoke: "smoke" }
+test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
 ---
 ```
 
-The body describes each app, the flag convention, and points to `docs/spec/` and `docs/decisions/`.
+`apps:` names logical components, whether they live at the root or under nested directories; a multi-app repo declares several entries. Add `contract: { generated: [...], generator_service: "..." }` only for real generated artifacts. Replace services and test globs with the repo's facts. The body describes each component, the flag convention, and points to `docs/spec/` and `docs/decisions/`.
 
-**Vertical slice order inside one PR:** migration (expand) → API test RED → API GREEN → regenerate the client (through the contract's generator service; commit it) → web test RED → web GREEN → E2E for the user flow → `sandbox_gate`. A slice that touches only one app skips the steps it doesn't need.
+**Vertical slice order inside one PR:** every applicable layer — for example migration (expand) → API test RED → API GREEN → regenerate any declared client (through the generator service; commit it) → web test RED → web GREEN → E2E for the user flow → `sandbox_gate`. Skip absent layers and steps the slice doesn't need; a full-stack app with no separate API contract has no API/client phase.
 
 **Issue and PR bodies (config only, `skills/oc/oc-github/templates/`).** `oc-github` fills them in and creates issues and PRs with `gh … --body-file`, so GitHub never needs a repo template. `prd.md` has: Problem, Solution, User stories, Spec link (`docs/spec/…`), Slices (auto-filled), Out of scope. `slice.md` has: Parent PRD, What to build, Acceptance criteria, Apps touched (`area:<app>`), Contract change (yes/no), Flag plan, Blocked by.
 
-`pr.md` has: `Closes #N`, `Part of #PRD`, What changed, Contract change and regenerated client, Red/green evidence, `sandbox_gate` result, Review summary, Flag state, and Deploy notes (the migration is expand/contract safe; any new env value has been added to the secrets manager for staging **and** production; docs are updated).
+`pr.md` has: `Closes #N`, `Part of #PRD`, What changed, Contract change and any regenerated artifacts, Red/green evidence, `sandbox_gate` result, Review summary, Flag state, and Deploy notes (any migration is expand/contract safe; any new env value has been added to the secrets manager for staging **and** production; docs are updated).
 
-**`labels.json` (config only):** `oc-github` creates any missing label the first time it needs it (`gh label create --force`, idempotent). `area:<app>` labels come from the `apps:` keys in `AGENTS.md`. This set replaces the older `state:*`, `category:*` and `mode:*` labels and their `labels.yml`. Labels: `prd`, `slice`, `area:<app>` for each app, `area:db`, `area:infra`, `area:docs`, `risk:security`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `flag-removal`.
+**`labels.json` (config only):** `oc-github` creates any missing label the first time it needs it (`gh label create --force`, idempotent). `area:<app>` labels come from the `apps:` keys in `AGENTS.md`. This set replaces the older `state:*`, `category:*` and `mode:*` labels and their `labels.yml`. Labels: `prd`, `slice`, `area:<app>` for each logical component, `area:db`, `area:infra`, `area:docs`, `risk:security`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `flag-removal`.
 
 **CI:** the PR gate runs the same isolated Compose test run. A final aggregate job (`ci-ok`) is the single required check. Image build and deploy workflows are separate and outside this flow.
 

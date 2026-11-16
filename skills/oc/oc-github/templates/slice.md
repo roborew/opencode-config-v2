@@ -10,9 +10,9 @@
 ## What to build
 
 {{what_to_build}}
-<!-- vertical: every layer this slice needs (migration → API → generated
-     client → web → E2E) in one PR; never split into backend and frontend
-     slices. Skip only the layers it doesn't need. -->
+<!-- vertical: every applicable layer in one PR (for example migration → API →
+     generated client → web → E2E); never split into tier-only slices. Skip
+     layers and generated artifacts the repo or slice does not have. -->
 
 ## Acceptance criteria
 
@@ -20,18 +20,19 @@
 <!-- one per line; each gets its own RED (test-only commit, failing) and GREEN
      (code commit, passing) evidence through sandbox_test -->
 
-## Apps touched
+## Components touched
 
 {{apps_touched}}
-<!-- one area:<app> label per app touched, taken from the repo's AGENTS.md
+<!-- one area:<app> label per logical component touched, taken from AGENTS.md
      front matter apps: keys; plus area:db / area:infra / area:docs /
      risk:security where they apply. These become the issue's labels. -->
 
 ## Contract change
 
 {{contract_change}}
-<!-- yes or no. yes = the API contract changes and the client is regenerated
-     through the contract's generator_service and committed (never hand-edited). -->
+<!-- no/not applicable, or: yes — the declared contract changes and generated
+     artifacts are regenerated through generator_service and committed (never
+     hand-edited). A repo without an explicit generated contract says no. -->
 
 ## Flag plan
 

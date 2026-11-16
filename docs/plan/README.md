@@ -19,6 +19,6 @@ Build order (frontier):
 - After 04 + 05: 06. After 06 + 07: 08. After 02 + 09: 10
 - After 08 + 10 + 11: 12
 
-App repos use the monorepo layout and architecture from Robin's Project Template (`../../templates/project/TEMPLATE.md`). Tests always run fully isolated in Docker (blueprint §7.2, §9.2). Each repo has one test-only `compose.yml` (D29). Agents call Compose directly, and the `justfile` is Robin's optional shortcut (D31). E2E runs in Docker (D32).
+Each project uses one app repo; Robin's Project Template (`../../templates/project/TEMPLATE.md`) guides both single-app and multi-app layouts without prescribing a monorepo, nested `apps/`, an API boundary or a particular stack. Tests always run fully isolated in Docker (blueprint §7.2, §9.2). Each repo has one test-only `compose.yml` (D29). Agents call Compose directly, and the `justfile` is Robin's optional shortcut (D31). Browser E2E runs in Docker when the repo has browser flows (D32).
 Tickets 09 and 10 are carried out in the opencode-server repo, against blueprint §10–§11.
 Ticket 01 settled every former [spike] item on 2026-11-14 (`../adr/0009-spike-results.md`); the blueprint records the confirmed approaches.

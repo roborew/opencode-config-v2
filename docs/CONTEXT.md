@@ -6,12 +6,12 @@
 - **Slice worktree:** a git worktree off `origin/main` for exactly one slice, on branch `slice/<N>-<slug>`, with its own OpenCode session.
 - **Slice record:** what `oc-worktree` stores at `slice_start`: issue, labels, PRD, branch, directory, session.
 - **Main checkout:** the repo's primary working copy. `/build` coordinates from here and never implements.
-- **Project Template:** Robin's example of the standard monorepo layout and architecture (`templates/project/TEMPLATE.md`). It covers layout and architecture only, not how tests run.
+- **Project Template:** architecture guidance for one project repo, whether it contains a root-level single app or multiple apps (`templates/project/TEMPLATE.md`). It does not require a monorepo, nested `apps/`, shared packages or a separate API, and it does not set how tests run.
 - **Test contract:** the repo's single `compose.yml` (test-only, never used in production). It runs the whole system and its tests from the repo's own Dockerfiles, fully isolated.
 - **Sandbox:** the per-slice isolated Docker environment where the test contract runs. The backend is **sysbox** (its own Sysbox container on the server) or **docker** (its own Compose project on the Mac).
 - **Sidecar:** the opencode-server container that alone holds the Docker socket and exposes the fixed sandbox API.
-- **Gate (local):** `sandbox_gate`: every test service in the contract, client drift and production-image smoke, run isolated. **Final gate:** the same contract in GitHub Actions, aggregated as `ci-ok`.
-- **Vertical slice order:** migration → API → generated client → web → E2E, all in one PR.
+- **Gate (local):** `sandbox_gate`: every test service in the contract, any declared generation drift check and production-image smoke, run isolated. **Final gate:** the same contract in GitHub Actions, aggregated as `ci-ok`.
+- **Vertical slice order:** every applicable layer in one PR — for example migration → API → generated client → web → E2E. Skip layers and artifacts the repo or slice does not have.
 - **Evidence:** a recorded sandbox run `{sha, cmd, passed}` used by `redgreen_check`.
 - **RED / GREEN:** a test-only commit whose evidence fails, followed by a code commit whose evidence passes.
 - **Flag:** a temporary toggle that keeps incomplete behaviour dark on `main`. Each one has a `flag-removal` slice.

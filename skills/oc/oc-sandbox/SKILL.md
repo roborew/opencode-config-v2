@@ -20,9 +20,9 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
    minimum code, commit, and re-run the same focused command — it must PASS
    (GREEN). Evidence is recorded against the commit SHA.
 3. `sandbox_gate({ slice })` before the PR: every test service in the contract,
-   the client drift check, and the production-image smoke check.
+   any declared generation drift check, and the production-image smoke check.
 4. `redgreen_check({ slice })`: verifies each behaviour-changing commit has a
-   preceding failing test-only commit. Generated client files count as neither.
+   preceding failing test-only commit. Declared generated files count as neither.
 5. `sandbox_down({ slice })` when the slice ends.
 
 ## Reading results
@@ -33,9 +33,9 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
 - `sandbox_up` builds the contract's images and brings the dev-profile
   dependencies up healthy (the warm-up), so the first RED run isn't a cold build.
 - `sandbox_gate` runs every test service in the contract's `services` map
-  (except e2e/smoke), regenerates the client through the `generator_service`
-  and diffs the generated globs, then brings up the full profile (production
-  images) and runs the smoke service.
+  (except e2e/smoke), regenerates and diffs declared generated artifacts when
+  a `generator_service` exists, then brings up the full profile (production
+  images) and runs the smoke service when one is declared.
 - `redgreen_check` classifies each commit `main..HEAD` by its changed files
   (`test_globs` vs `contract.generated`): a test-only commit needs a failing
   record, the following code commit needs a passing one, and a code commit

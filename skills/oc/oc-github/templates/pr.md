@@ -9,14 +9,14 @@ Part of #{{prd_issue}}
 ## What changed
 
 {{what_changed}}
-<!-- summary of the vertical slice: migration → API → generated client → web
-     → E2E, skipping the layers this slice doesn't touch -->
+<!-- summary of the vertical slice through every applicable layer, for example
+     migration → API → generated client → web → E2E; skip absent layers -->
 
-## Contract change and regenerated client
+## Contract change and regenerated artifacts
 
 {{contract_change}}
-<!-- no, or: yes — regenerated through the contract's generator service and
-     committed (never hand-edited) -->
+<!-- no/not applicable, or: yes — regenerated through the declared generator
+     service and committed (never hand-edited) -->
 
 ## Red/green evidence
 
@@ -28,8 +28,8 @@ Part of #{{prd_issue}}
 ## sandbox_gate result
 
 {{sandbox_gate}}
-<!-- passed/failed, plus the steps: every test service in the contract, the
-     client drift check and the production-image smoke check -->
+<!-- passed/failed, plus applicable steps: every test service in the contract,
+     any generation drift check and the production-image smoke check -->
 
 ## Review summary
 
@@ -45,6 +45,6 @@ Part of #{{prd_issue}}
 
 ## Deploy notes
 
-- [ ] The migration is expand/contract safe.
+- [ ] Any migration is expand/contract safe (or no migration is present).
 - [ ] Any new env value has been added to the secrets manager for staging **and** production.
 - [ ] Docs are updated.

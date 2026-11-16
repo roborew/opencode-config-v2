@@ -132,4 +132,4 @@ Categorize every finding, using the same severity labels as the `code-review-and
 
 ## Flow-Specific Checks (opencode-config-v2 local extension)
 
-Check that the slice's tests were not weakened, deleted or skipped to make them pass, and that each behaviour change has a preceding test-only commit whose recorded sandbox run failed before the code commit that made it pass. Also check that generated client code was regenerated through the contract's generator service and never hand-edited.
+Check that the slice's tests were not weakened, deleted or skipped to make them pass, and that each behaviour change has a preceding test-only commit whose recorded sandbox run failed before the code commit that made it pass. When the repo declares generated artifacts, also check that they were regenerated through the contract's generator service and never hand-edited.

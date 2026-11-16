@@ -10,9 +10,10 @@ Daily use of `opencode-config-v2` on the Mac (the server is the same flow; see
    then writes `docs/spec/<slug>.md` in the app repo and opens the PRD umbrella
    issue. Two approval gates: after the spec, and later before any slice issue
    exists. Hedged answers are not approval.
-2. **`/plan <PRD>`** — proposes vertical slices (each one cuts through every
-   layer it needs: migration → API → generated client → web → E2E, one PR),
-   shows you the numbered breakdown, and on approval creates the slice issues
+2. **`/plan <PRD>`** — proposes vertical slices through every applicable layer
+   (for example migration → API → generated client → web → E2E in one PR),
+   skipping layers and artifacts the repo does not have. It shows you the
+   numbered breakdown, and on approval creates the slice issues
    as sub-issues with `area:*` labels, blockers and `status:ready`.
 3. **`/build`** — in the app repo's main checkout: starts up to 3 unblocked
    slices. Each gets a worktree off `origin/main` (`slice/<N>-<slug>`), a
@@ -76,9 +77,9 @@ by the phase table, permissions or command templates.
   plugin logs under `[oc-…]`. `sandbox_test` output tails 200 lines with
   secrets redacted.
 - **Skills not loading in a slice session** — the `oc-skills` hook registers
-  per-app skills and adds them to every prompt in a slice worktree; check the
-  `AGENTS.md` front matter has the `apps:` entry with the right `area:<app>`
-  label on the issue.
+  applicable nested component skills and adds them to every prompt in a slice
+  worktree (root `.agents/skills/` is discovered normally); check `AGENTS.md`
+  has the right logical `apps:` entry and the issue has its `area:<app>` label.
 - **Config changes not picked up** — `opencode reload` restarts configuration;
   plugin changes need a server restart.
 

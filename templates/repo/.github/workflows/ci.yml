@@ -2,8 +2,10 @@
 # The repo owns this file in full from here on: adapt the jobs to the repo,
 # and keep `ci-ok` last so branch protection can require the single check.
 # It runs the same isolated Compose path the flow uses (§9.2): one compose.yml,
-# test-target images, a throwaway _test database, nothing from the host, no
-# published ports, committed dummy env. No shared or reusable workflows.
+# test-target images, throwaway dependencies, nothing from the host, no published
+# ports, committed dummy env. No shared or reusable workflows. Adapt or remove
+# jobs that do not apply (for example browser E2E in a non-UI repo), and keep the
+# ci-ok needs list in sync.
 name: ci
 
 on:
@@ -23,14 +25,12 @@ jobs:
           persist-credentials: false
       # TODO(repo): one step per test service from the AGENTS.md front matter
       # (test.services, except e2e and smoke), using the same command
-      # oc-sandbox runs (test.commands.test). Delete the api/web examples if
-      # they don't match this repo.
-      - name: api-test
-        run: docker compose -f compose.yml --profile test run --rm api-test
-      - name: web-test
-        run: docker compose -f compose.yml --profile test run --rm web-test
-      # TODO(repo): client drift check — regenerate through the contract's
-      # generator service and fail on drift (enable once the service exists):
+      # oc-sandbox runs (test.commands.test). The single-app example below is
+      # illustrative: replace it with the repo's real services.
+      - name: app-test
+        run: docker compose -f compose.yml --profile test run --rm app-test
+      # TODO(repo): only when a generated contract exists, regenerate through
+      # the declared generator service and fail on drift (paths are examples):
       #   docker compose -f compose.yml --profile test run --rm api-client-gen
       #   git diff --exit-code -- packages/api-client
       - name: Tear down

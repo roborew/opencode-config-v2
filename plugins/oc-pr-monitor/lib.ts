@@ -41,7 +41,7 @@ export function diffSnapshot(prev: PRSnapshot | undefined, next: PRSnapshot): Wa
     .filter((t) => !t.resolved)
     .filter((t) => {
       const before = known.get(t.id)
-      return !before || before.lastBody !== t.lastBody
+      return !before || before.lastBody !== t.lastBody || (before.resolved && !t.resolved)
     })
     .map((t) => ({ id: t.id, body: t.lastBody }))
   const failedChecks = next.checks
@@ -103,7 +103,7 @@ export function parsePRGraphql(json: any): PRSnapshot {
     resolved: t?.isResolved === true,
     lastBody: String(t?.comments?.nodes?.at(-1)?.body ?? "").trim(),
   }))
-  const rawChecks: any[] = pr?.statusCheckRollup?.contexts ?? []
+  const rawChecks: any[] = pr?.statusCheckRollup?.contexts?.nodes ?? []
   const checks: CheckSnapshot[] = rawChecks.map((c: any) => ({
     name: String(c?.name ?? c?.context ?? "check"),
     state: normalizeCheckState(c?.conclusion ?? c?.state),

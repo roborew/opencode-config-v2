@@ -31,15 +31,17 @@ between worktrees.
    resolved and `ci-ok` is green. The central session then tells you which PR to
    review and test. The monitor stays armed for late feedback until merge.
 6. **If you find a problem, tell central build** — for example, "PR #42 misses
-   the empty-state recovery action." Build calls `slice_message`, waking the
-   existing worker with its original context. It fixes and verifies the same
-   branch and PR, restarts the monitor, and reports READY again. Do not create a
-   replacement worktree, session or PR.
+   the empty-state recovery action." Build resolves that PR to its linked slice
+   issue, then calls `slice_message` to wake the existing worker with its
+   original context. It fixes and verifies the same branch and PR, restarts the
+   monitor, and reports READY again. Do not create a replacement worktree,
+   session or PR.
 7. **If the PR is acceptable, merge it in GitHub.** Agents never merge.
 8. **Tell central build "I merged #N"** (or run `/build` again). Build verifies
    the merge, calls `slice_finish`, confirms the `Closes #N` issue is closed,
-   calls `slice_sync` for active slices, closes the PRD if its last slice has
-   merged, then starts newly unblocked slices and reports `slice_status`.
+   retries any pending `slice_sync`, closes every affected PRD whose last slice
+   has merged, then starts newly unblocked slices and reports `slice_status`. If
+   cleanup is refused, the dirty worktree and edits are retained and reported.
 
 ## BLOCKED slices
 
@@ -47,7 +49,10 @@ A slice that can't converge (3 failed attempts on the same criterion, merge
 conflicts in `slice_sync`, or the PR monitor's round cap) stops as BLOCKED with
 a short reason on its issue. Worker and monitor BLOCKED states are also sent to
 the central build session. Read the reason; it is usually a spec gap — take it
-back to `/plan`, or resolve manually and re-run `/build #N`.
+back to `/plan`. After the blocker is resolved or replanned, call
+`slice_resume({ issue })` from the central session; this wakes the existing
+worker in its existing worktree and branch. There is no need to enter the slice
+worktree or run `/build #N` there yourself.
 
 ## Sandboxes
 

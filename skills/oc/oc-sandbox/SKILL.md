@@ -43,7 +43,10 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
   as neither.
 - On failure, follow debugging-and-error-recovery; after three failed attempts
   on the same criterion, call `slice_block` with the actionable reason and go idle.
-  That comments on the issue and notifies the central build session.
+  That retains the reason, attempts an issue comment and notifies central build.
+  If the result says the issue comment or coordinator notification failed,
+  surface which delivery failed and identify the issue comment if one exists;
+  do not post the same blocker comment again.
 - Test-path globs come from the repo's `AGENTS.md` front matter (`test_globs`).
 
 Never run `docker`, `sandbox` or `just` test commands directly — they are denied

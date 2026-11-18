@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { execSync } from "node:child_process"
+import { execFileSync, execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { diffSnapshot, isReady, parsePRGraphql, wakeText, type PRSnapshot } from "./lib"
 import type { SliceRecord } from "../oc-worktree/lib"
@@ -37,6 +37,8 @@ interface WatchRecord {
   round: number
   lastSnapshot?: PRSnapshot
   prURL?: string
+  readyWorkerNotified?: boolean
+  readyCommentPosted?: boolean
   readyNotified?: boolean
   retryTerminalNotification?: "blocked" | "closed"
   active: boolean
@@ -50,7 +52,7 @@ query($owner:String!,$name:String!,$number:Int!){
     pullRequest(number:$number){
       state
       reviewThreads(first:100){nodes{id isResolved comments(last:1){nodes{body}}}}
-      statusCheckRollup{state contexts{... on CheckRun{name conclusion}... on StatusContext{name state}}}
+      statusCheckRollup{state contexts(first:100){nodes{... on CheckRun{name conclusion}... on StatusContext{context state}}}}
     }
   }
 }`
@@ -64,22 +66,27 @@ export default Plugin.define({
     const liveWatches = new Map<number, WatchRecord>()
     const ticking = new Set<number>()
     const stateQueues = new Map<number, Promise<unknown>>()
+    const watchQueues = new Map<number, Promise<unknown>>()
 
     console.log(`[oc-pr-monitor] active (interval ${intervalMs}ms, maxRounds ${maxRounds})`)
 
     const fetchSnapshot = (watch: WatchRecord): PRSnapshot | undefined => {
-      const res = sh(
-        `gh api graphql -f query=${JSON.stringify(PR_QUERY)} -F owner=${JSON.stringify(watch.owner)} -F name=${JSON.stringify(watch.name)} -F number=${watch.pr}`,
-        watch.repoDir,
-      )
-      if (res.code !== 0) {
-        console.error(`[oc-pr-monitor] graphql failed for PR #${watch.pr}: ${res.out.trim().slice(0, 200)}`)
-        return undefined
-      }
       try {
-        return parsePRGraphql(JSON.parse(res.out))
-      } catch (e) {
-        console.error(`[oc-pr-monitor] could not parse the PR response:`, e)
+        const out = execFileSync(
+          "gh",
+          [
+            "api", "graphql",
+            "-f", `query=${PR_QUERY}`,
+            "-F", `owner=${watch.owner}`,
+            "-F", `name=${watch.name}`,
+            "-F", `number=${watch.pr}`,
+          ],
+          { cwd: watch.repoDir, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 },
+        ).toString()
+        return parsePRGraphql(JSON.parse(out))
+      } catch (e: any) {
+        const out = (e?.stdout?.toString() ?? "") + (e?.stderr?.toString() ?? "")
+        console.error(`[oc-pr-monitor] graphql failed for PR #${watch.pr}: ${out.trim().slice(0, 200)}`)
         return undefined
       }
     }
@@ -96,20 +103,30 @@ export default Plugin.define({
         if (record) {
           record.state = state
           record.prURL = watch.prURL ?? record.prURL
+          record.pendingLabel = state === "building" ? "in-progress" : state
           await ctx.storage.set(`slices/${watch.slice}`, record as any)
         }
-        const label = state === "building" ? "in-progress" : state
-        const removals = ["in-progress", "in-review", "ready", "blocked"]
-          .filter((name) => name !== label)
-          .map((name) => ` --remove-label status:${name}`)
-          .join("")
-        gh(`issue edit ${watch.slice} --add-label status:${label}${removals}`, watch.repoDir)
+        const label = record?.pendingLabel
+        if (record && label) {
+          const removals = ["in-progress", "in-review", "ready", "blocked"]
+            .filter((name) => name !== label)
+            .map((name) => ` --remove-label status:${name}`)
+            .join("")
+          const update = gh(`issue edit ${watch.slice} --add-label status:${label}${removals}`, watch.repoDir)
+          if (update.code === 0) {
+            record.pendingLabel = undefined
+            await ctx.storage.set(`slices/${watch.slice}`, record as any)
+          } else {
+            console.error(`[oc-pr-monitor] label update failed for slice #${watch.slice}; slice_status will retry`)
+          }
+        }
         return true
       })
       stateQueues.set(watch.slice, queued)
-      void queued.finally(() => {
+      const cleanup = () => {
         if (stateQueues.get(watch.slice) === queued) stateQueues.delete(watch.slice)
-      })
+      }
+      void queued.then(cleanup, cleanup)
       return queued
     }
 
@@ -129,15 +146,51 @@ export default Plugin.define({
       }
     }
 
+    const retryPendingLabel = async (watch: WatchRecord): Promise<void> => {
+      const previous = stateQueues.get(watch.slice) ?? Promise.resolve()
+      const queued = previous.catch(() => undefined).then(async () => {
+        if (!isCurrent(watch)) return
+        const current = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+        if (!current?.pendingLabel) return
+        const label = current.pendingLabel
+        const removals = ["in-progress", "in-review", "ready", "blocked"]
+          .filter((name) => name !== label)
+          .map((name) => ` --remove-label status:${name}`)
+          .join("")
+        const update = gh(`issue edit ${watch.slice} --add-label status:${label}${removals}`, watch.repoDir)
+        if (update.code !== 0) return
+        const latest = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+        if (latest && latest.pendingLabel === label) {
+          latest.pendingLabel = undefined
+          await ctx.storage.set(`slices/${watch.slice}`, latest as any)
+        }
+      })
+      stateQueues.set(watch.slice, queued)
+      const cleanup = () => {
+        if (stateQueues.get(watch.slice) === queued) stateQueues.delete(watch.slice)
+      }
+      void queued.then(cleanup, cleanup)
+      await queued
+    }
+
     const isCurrent = (watch: WatchRecord) => watch.active && liveWatches.get(watch.slice) === watch
 
-    const save = async (watch: WatchRecord, replace = false): Promise<boolean> => {
-      if (!replace) {
-        const stored = (await ctx.storage.get(`watches/${watch.slice}`)) as WatchRecord | undefined
-        if (stored?.watchID && stored.watchID !== watch.watchID) return false
+    const save = (watch: WatchRecord, replace = false): Promise<boolean> => {
+      const previous = watchQueues.get(watch.slice) ?? Promise.resolve()
+      const queued = previous.catch(() => undefined).then(async () => {
+        if (!replace) {
+          const stored = (await ctx.storage.get(`watches/${watch.slice}`)) as WatchRecord | undefined
+          if (stored?.watchID && stored.watchID !== watch.watchID) return false
+        }
+        await ctx.storage.set(`watches/${watch.slice}`, watch as any)
+        return true
+      })
+      watchQueues.set(watch.slice, queued)
+      const cleanup = () => {
+        if (watchQueues.get(watch.slice) === queued) watchQueues.delete(watch.slice)
       }
-      await ctx.storage.set(`watches/${watch.slice}`, watch as any)
-      return true
+      void queued.then(cleanup, cleanup)
+      return queued
     }
 
     const stop = async (watch: WatchRecord) => {
@@ -160,11 +213,7 @@ export default Plugin.define({
         await stop(watch)
         return
       }
-      if (durable.state === "building") {
-        // slice_message owns the worker until it fixes and explicitly re-watches.
-        await save(watch)
-        return
-      }
+      await retryPendingLabel(watch)
       if (durable.state === "blocked") {
         if (watch.retryTerminalNotification) {
           const kind = watch.retryTerminalNotification
@@ -195,12 +244,18 @@ export default Plugin.define({
         return
       }
       if (snapshot.state === "CLOSED") {
-        await setSliceState(watch, "blocked")
+        if (!await setSliceState(watch, "blocked") || !isCurrent(watch)) return
         watch.retryTerminalNotification = "closed"
         const delivery = await notifyCoordinator(watch, `PR #${watch.pr} for slice #${watch.slice} was CLOSED without merging. The user needs to decide whether to reopen it or close the slice.`)
         if (!isCurrent(watch)) return
         if (delivery !== "failed") await stop(watch)
         else await save(watch)
+        return
+      }
+
+      if (durable.state === "building") {
+        // slice_message owns the worker until it fixes and explicitly re-watches.
+        await save(watch)
         return
       }
 
@@ -211,20 +266,37 @@ export default Plugin.define({
       if (isReady(snapshot)) {
         if (durable.state !== "ready") {
           console.log(`[oc-pr-monitor] PR #${watch.pr} is READY — status:ready`)
+          watch.readyWorkerNotified = false
+          watch.readyCommentPosted = false
           watch.readyNotified = false
           if (!await setSliceState(watch, "ready")) {
             await stop(watch)
             return
           }
           if (!isCurrent(watch)) return
-          await ctx.session
-            .prompt({
+        }
+        if (!watch.readyWorkerNotified) {
+          try {
+            await ctx.session.prompt({
               sessionID: watch.sessionID,
               text: `PR #${watch.pr} is READY (all threads resolved, ci-ok green). Go idle; the monitor remains armed for late feedback until merge.`,
               delivery: "queue",
             })
-            .catch((e: any) => console.error("[oc-pr-monitor] READY worker notify failed:", e?.message ?? e))
-          if (!isCurrent(watch)) return
+            watch.readyWorkerNotified = true
+          } catch (e: any) {
+            console.error("[oc-pr-monitor] READY worker notify failed:", e?.message ?? e)
+          }
+        }
+        if (!isCurrent(watch)) return
+        const beforeComment = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+        if (!beforeComment || beforeComment.state !== "ready") {
+          if (!beforeComment || beforeComment.state === "blocked") await stop(watch)
+          else await save(watch)
+          return
+        }
+        if (!watch.readyCommentPosted) {
+          const comment = gh(`pr comment ${watch.pr} --body "READY: all review threads resolved and ci-ok green. The user reviews, tests and merges."`, watch.repoDir)
+          if (comment.code === 0) watch.readyCommentPosted = true
         }
         if (!watch.readyNotified) {
           const delivery = await notifyCoordinator(
@@ -241,10 +313,7 @@ export default Plugin.define({
             await save(watch)
             return
           }
-          if (delivery !== "failed") {
-            watch.readyNotified = true
-            gh(`pr comment ${watch.pr} --body "READY: all review threads resolved and ci-ok green. The user reviews, tests and merges."`, watch.repoDir)
-          }
+          if (delivery === "delivered") watch.readyNotified = true
         }
         await save(watch)
         return
@@ -252,6 +321,8 @@ export default Plugin.define({
 
       if (wasReady) {
         watch.readyNotified = false
+        watch.readyWorkerNotified = false
+        watch.readyCommentPosted = false
         if (!await setSliceState(watch, "in-review")) {
           await stop(watch)
           return
@@ -271,7 +342,7 @@ export default Plugin.define({
           `issue comment ${watch.slice} --body "BLOCKED: the PR did not converge within ${maxRounds} review rounds. Latest open threads: ${snapshot.threads.filter((t) => !t.resolved).length}. Robin takes a look."`,
           watch.repoDir,
         )
-        await setSliceState(watch, "blocked")
+        if (!await setSliceState(watch, "blocked") || !isCurrent(watch)) return
         watch.retryTerminalNotification = "blocked"
         await ctx.session
           .prompt({
@@ -349,9 +420,22 @@ export default Plugin.define({
             : ctx.location.directory
           const view = gh(`pr view ${input.pr} --json url,headRefName`, repoDir)
           if (view.code !== 0) return { content: `BLOCKED: gh pr view ${input.pr} failed: ${view.out.trim().slice(0, 200)}` }
-          const url = (JSON.parse(view.out).url ?? "") as string
+          let url: string
+          let headRefName: string
+          try {
+            const detail = JSON.parse(view.out)
+            url = String(detail.url ?? "")
+            headRefName = String(detail.headRefName ?? "")
+          } catch {
+            return { content: `BLOCKED: could not parse gh pr view ${input.pr}` }
+          }
           const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
           if (!m) return { content: `BLOCKED: could not read owner/repo from ${url}` }
+          const sliceRecord = (await ctx.storage.get(`slices/${input.slice}`)) as SliceRecord | undefined
+          if (!sliceRecord) return { content: `BLOCKED: no active slice record for #${input.slice}` }
+          if (sliceRecord.branch !== headRefName) {
+            return { content: `BLOCKED: PR #${input.pr} belongs to ${headRefName}, not slice #${input.slice} (${sliceRecord.branch})` }
+          }
           const watch: WatchRecord = {
             watchID: randomUUID(),
             slice: input.slice,
@@ -362,12 +446,20 @@ export default Plugin.define({
             name: m[2]!,
             round: 0,
             prURL: url,
+            readyWorkerNotified: false,
+            readyCommentPosted: false,
             readyNotified: false,
             active: true,
           }
-          liveWatches.set(input.slice, watch)
-          await setSliceState(watch, "in-review", true)
-          await save(watch, true)
+          const previous = liveWatches.get(input.slice)
+          try {
+            await save(watch, true)
+            if (!await setSliceState(watch, "in-review", true)) throw new Error("slice state update was rejected")
+          } catch (e: any) {
+            if (previous) await save(previous, true).catch(() => false)
+            else await ctx.storage.remove(`watches/${input.slice}`).catch(() => { })
+            return { content: `BLOCKED: could not register the replacement watch: ${e?.message ?? e}` }
+          }
           await arm(watch)
           return { content: `watching PR #${input.pr} (slice #${input.slice}): interval ${intervalMs}ms, round cap ${maxRounds}. Going idle — the monitor wakes this session only on change.` }
         },

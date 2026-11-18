@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ execSync: vi.fn() }))
+const mocks = vi.hoisted(() => ({ execSync: vi.fn(), execFileSync: vi.fn() }))
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>()
-  return { ...actual, execSync: mocks.execSync }
+  return { ...actual, execSync: mocks.execSync, execFileSync: mocks.execFileSync }
 })
 
 import monitorPlugin from "../../plugins/oc-pr-monitor/index"
@@ -36,14 +36,15 @@ function githubResponse(state = "OPEN", unresolvedBody?: string, conclusion = "S
               ? [{ id: "thread-1", isResolved: false, comments: { nodes: [{ body: unresolvedBody }] } }]
               : [],
           },
-          statusCheckRollup: { contexts: [{ name: "ci-ok", conclusion }] },
+          statusCheckRollup: { contexts: { nodes: [{ name: "ci-ok", conclusion }] } },
         },
       },
     },
   }
 }
 
-async function setupMonitor(maxRounds = 5) {
+async function setupMonitor(maxRounds = 5, response: () => any = () => githubResponse()) {
+  mocks.execFileSync.mockImplementation(() => Buffer.from(JSON.stringify(response())))
   const tools = new Map<string, any>()
   const record: SliceRecord = {
     issue: 7,
@@ -81,6 +82,7 @@ describe("PR monitor coordinator lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mocks.execSync.mockReset()
+    mocks.execFileSync.mockReset()
   })
 
   afterEach(() => {
@@ -88,8 +90,8 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("keeps watching after READY, resumes for late feedback, and reports MERGED", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
     let response = githubResponse()
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
       if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(response))
@@ -107,6 +109,10 @@ describe("PR monitor coordinator lifecycle", () => {
       sessionID: "coordinator",
       text: expect.stringContaining("READY"),
     }))
+    const graphqlArgs = mocks.execFileSync.mock.calls[0]![1] as string[]
+    expect(mocks.execFileSync.mock.calls[0]![0]).toBe("gh")
+    expect(graphqlArgs.some((arg) => arg.includes("query($owner:String!,$name:String!,$number:Int!)") && arg.includes("contexts(first:100){nodes{"))).toBe(true)
+    expect(graphqlArgs).toContain("owner=example")
 
     // An explicit re-watch after user feedback must replace the live timer's
     // stale READY state, even when CI is already green again.
@@ -141,10 +147,9 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("reports the round-cap BLOCKED state to the coordinator", async () => {
-    const { tools, storage, prompt } = await setupMonitor(0)
+    const { tools, storage, prompt } = await setupMonitor(0, () => githubResponse("OPEN", "Still broken", "FAILURE"))
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
-      if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(githubResponse("OPEN", "Still broken", "FAILURE")))
       return Buffer.from("")
     })
 
@@ -158,6 +163,7 @@ describe("PR monitor coordinator lifecycle", () => {
     expect(storage.values.get("watches/7").active).toBe(true)
 
     prompt.mockImplementation(async () => undefined)
+    prompt.mockClear()
     await vi.advanceTimersByTimeAsync(1000)
     expect(storage.values.get("watches/7").active).toBe(false)
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
@@ -167,8 +173,8 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("retries READY and MERGED coordinator notifications after transient failures", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
     let response = githubResponse()
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
       if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(response))
@@ -201,6 +207,68 @@ describe("PR monitor coordinator lifecycle", () => {
     expect(storage.values.get("watches/7").active).toBe(false)
   })
 
+  it("rejects a PR whose head branch does not belong to the slice", async () => {
+    const { tools, storage } = await setupMonitor()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 13")) return Buffer.from(JSON.stringify({ url: "https://github.com/example/app/pull/13", headRefName: "slice/99-other" }))
+      return Buffer.from("")
+    })
+
+    const result = await tools.get("watch").execute({ slice: 7, pr: 13 }, { sessionID: "worker-7" })
+
+    expect(result.content).toContain("belongs to slice/99-other")
+    expect(storage.values.get("slices/7").state).toBe("building")
+    expect(storage.values.get("watches/7")).toBeUndefined()
+  })
+
+  it("keeps the old watch running when replacement registration fails", async () => {
+    let response = githubResponse()
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
+      return Buffer.from("")
+    })
+
+    const oldWatch = await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+    expect(oldWatch.content).toContain("watching PR #12")
+    storage.set.mockRejectedValueOnce(new Error("storage unavailable"))
+
+    const replacement = await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+    expect(replacement.content).toContain("could not register the replacement watch")
+
+    prompt.mockClear()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(storage.values.get("slices/7").state).toBe("ready")
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "worker-7" }))
+  })
+
+  it("retries a failed worker READY prompt without repeating coordinator delivery", async () => {
+    const { tools, storage, prompt } = await setupMonitor()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
+      return Buffer.from("")
+    })
+    let workerFailed = false
+    prompt.mockImplementation(async (input: any) => {
+      if (input.sessionID === "worker-7" && !workerFailed) {
+        workerFailed = true
+        throw new Error("worker unavailable")
+      }
+    })
+
+    await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(storage.values.get("watches/7")).toMatchObject({ readyWorkerNotified: false, readyNotified: true })
+    const commentCount = mocks.execSync.mock.calls.filter(([command]) => command.includes("pr comment 12")).length
+
+    prompt.mockClear()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(storage.values.get("watches/7")).toMatchObject({ readyWorkerNotified: true, readyNotified: true })
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "worker-7" }))
+    expect(mocks.execSync.mock.calls.filter(([command]) => command.includes("pr comment 12"))).toHaveLength(commentCount)
+  })
+
   it("honours a durable worker BLOCKED state and stops without overwriting it", async () => {
     const { tools, storage, prompt } = await setupMonitor()
     mocks.execSync.mockImplementation((command: string) => {
@@ -220,8 +288,8 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("moves durable state back to in-review when a failed READY becomes non-READY", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
     let response = githubResponse()
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
       if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(response))
@@ -242,8 +310,8 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("does not let an in-flight MERGED tick stop its replacement watch", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
     let response = githubResponse("MERGED")
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
     let releaseCoordinator: (() => void) | undefined
     const coordinatorPending = new Promise<void>((resolve) => { releaseCoordinator = resolve })
     mocks.execSync.mockImplementation((command: string) => {
@@ -338,19 +406,26 @@ describe("PR monitor coordinator lifecycle", () => {
     expect(storage.values.get("watches/7")).toMatchObject({ active: false, readyNotified: false })
   })
 
-  it("treats a missing coordinator as unconfigured rather than retrying forever", async () => {
-    const { tools, storage } = await setupMonitor()
-    storage.values.get("slices/7").coordinatorSessionID = undefined
+  it("keeps READY pending until the coordinator is backfilled", async () => {
     let response = githubResponse()
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
+    storage.values.get("slices/7").coordinatorSessionID = undefined
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
-      if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(response))
       return Buffer.from("")
     })
 
     await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
     await vi.advanceTimersByTimeAsync(1000)
+    expect(storage.values.get("watches/7")).toMatchObject({ active: true, readyNotified: false })
+    expect(prompt.mock.calls.filter(([input]) => input.sessionID === "worker-7")).toHaveLength(1)
+    expect(mocks.execSync.mock.calls.filter(([command]) => command.includes("pr comment 12"))).toHaveLength(1)
+
+    storage.values.get("slices/7").coordinatorSessionID = "coordinator"
+    await vi.advanceTimersByTimeAsync(1000)
     expect(storage.values.get("watches/7")).toMatchObject({ active: true, readyNotified: true })
+    expect(prompt.mock.calls.filter(([input]) => input.sessionID === "worker-7")).toHaveLength(1)
+    expect(mocks.execSync.mock.calls.filter(([command]) => command.includes("pr comment 12"))).toHaveLength(1)
 
     response = githubResponse("MERGED")
     await vi.advanceTimersByTimeAsync(1000)
@@ -369,6 +444,6 @@ describe("PR monitor coordinator lifecycle", () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(storage.values.get("watches/7").active).toBe(false)
-    expect(mocks.execSync).not.toHaveBeenCalledWith(expect.stringContaining("gh api graphql"), expect.anything())
+    expect(mocks.execFileSync).not.toHaveBeenCalled()
   })
 })

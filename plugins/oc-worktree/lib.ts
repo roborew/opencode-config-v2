@@ -127,6 +127,9 @@ export interface SliceRecord {
   coordinatorSessionID?: string
   state: "building" | "in-review" | "ready" | "blocked"
   prURL?: string
+  pendingLabel?: string
+  blockedReason?: string
+  syncPending?: boolean
   createdAt: number
 }
 

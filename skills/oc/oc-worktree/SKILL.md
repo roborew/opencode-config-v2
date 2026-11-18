@@ -24,10 +24,15 @@ One slice = one issue = one worktree off `origin/main` on branch
   Verifies the PR is still OPEN; MERGED/CLOSED feedback needs a new slice. The
   worker fixes the same worktree, branch and PR, then restarts `prmon_watch`.
   Marks the slice `building` again.
+- `slice_resume({ issue })` — from the central build session, resumes a BLOCKED
+  slice in its existing worker and worktree after the blocker is resolved. Use
+  this for pre-PR blockers; the worker does not need a fresh `/build #N` run.
 - `slice_block({ issue, reason })` — from that slice's own worktree only, marks
-  it `blocked`, comments on the issue and notifies the central build session.
-- `slice_sync()` — after any merge to `main`: merges `origin/main` into each
-  open slice. Conflicts come back as BLOCKED and are never forced.
+  it `blocked`, retains the reason, attempts an issue comment and notifies the
+  central build session.
+- `slice_sync()` — after any merge to `main`, and on every `/build` run: merges
+  `origin/main` into building slices, retrying any `syncPending` work. READY and
+  BLOCKED slices are excluded. Conflicts come back as BLOCKED and are never forced.
 - `slice_finish({ issue })` — only after the PR is merged. Refuses dirty or
   unpushed worktrees; removes the worktree and branch behind the device/inode
   guard.

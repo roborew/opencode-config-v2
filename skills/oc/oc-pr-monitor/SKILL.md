@@ -26,6 +26,10 @@ Then go idle again. Never merge; Robin merges.
 
 - Each wake is one round. The cap is 5 rounds — on the 6th the slice becomes
   BLOCKED and the monitor posts a summary on the issue.
+- A resolved-to-unresolved thread transition counts as actionable feedback even
+  if its text did not change. Coordinator READY delivery, worker wake-up and the
+  PR comment are retried independently, so a transient failure does not repeat
+  the steps that already succeeded.
 - READY means every review thread is resolved and `ci-ok` passed: the monitor
   sets `status:ready`, posts a short PR comment and notifies both the worker and
   central build session. It keeps watching for late feedback until merge.

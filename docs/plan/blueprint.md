@@ -410,7 +410,7 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 | `OC_SANDBOX_BACKEND`                 | env (optional)                  | `auto` \| `sysbox` \| `docker`                        |
 | Real app secrets                     | Robin's secrets manager         | never needed for tests (§9.2), never pulled by agents |
 | `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                      | sidecar access                                        |
-| PR review apps (optional)            | GitHub, per repo                | PR review comments from any tool                      |
+| PR review apps (optional)            | GitHub, per repo                | review threads from any tool                          |
 
 ## 13. This repo's own CI (`.github/workflows/ci.yml`)
 

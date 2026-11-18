@@ -60,7 +60,7 @@ describe("wakeText", () => {
     expect(text).toContain("rename this")
     expect(text).toContain("tests (fail)")
     expect(text).toContain("Won't fix, because")
-    expect(text).toContain("Robin merges")
+    expect(text).toContain("the user merges")
   })
 
   it("says so when only resolved counts moved", () => {
@@ -80,6 +80,35 @@ describe("parsePRGraphql", () => {
     expect(snapshot.threads).toEqual([{ id: "RT_1", resolved: false, lastBody: "please fix" }])
     expect(snapshot.checks.map((c) => [c.name, c.state])).toEqual([["ci-ok", "pass"], ["status", "fail"]])
     expect(parsePRGraphql({}).threads).toEqual([])
+  })
+
+  it("treats comments from any PR review tool as resolvable threads", () => {
+    const thread = (id: string, body: string, login: string) => ({
+      id,
+      isResolved: false,
+      comments: { nodes: [{ body, author: { login } }] },
+    })
+    const snapshot = parsePRGraphql({
+      data: {
+        repository: {
+          pullRequest: {
+            state: "OPEN",
+            reviewThreads: {
+              nodes: [
+                thread("kilo", "Kilo found a regression", "kilo-bot"),
+                thread("copilot", "Copilot suggests a guard", "copilot"),
+                thread("security", "Security scanner found an issue", "security-bot"),
+              ],
+            },
+            statusCheckRollup: { contexts: [{ name: "ci-ok", conclusion: "SUCCESS" }] },
+          },
+        },
+      },
+    })
+
+    expect(diffSnapshot(undefined, snapshot).newUnresolvedThreads.map((t) => t.id)).toEqual(["kilo", "copilot", "security"])
+    expect(isReady(snapshot)).toBe(false)
+    expect(isReady({ ...snapshot, threads: snapshot.threads.map((t) => ({ ...t, resolved: true })) })).toBe(true)
   })
 
   it("normalizes every terminal GitHub check state before making monitor decisions", () => {

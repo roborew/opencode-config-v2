@@ -24,8 +24,9 @@ between worktrees.
    `origin/main` (`slice/<N>-<slug>`) and a session already running `/build #N`.
 4. **Workers do the routine work** — RED → GREEN through `sandbox_test`, local
    persona review, then `/ship` to push, open the PR and start its monitor.
-5. **Workers exhaust remote feedback before calling you** — CodeRabbit comments
-   and failed Actions checks wake the slice session (max 5 rounds); each item is
+5. **Workers exhaust remote feedback before calling you** — new review comments
+   from any PR tool (CodeRabbit, Kilo, Copilot, security scanners, etc.) and failed
+   Actions checks wake the slice session (max 5 rounds); each item is
    fixed or answered "Won't fix, because…". READY means every review thread is
    resolved and `ci-ok` is green. The central session then tells you which PR to
    review and test. The monitor stays armed for late feedback until merge.

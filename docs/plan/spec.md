@@ -14,7 +14,7 @@ Robin wants a **brand-new repo, `opencode-config-v2`, started from an empty `git
 A clean-slate, v2-only config branch with two primary modes, which are the built-in OpenCode agents overridden by ID:
 
 - **`plan`** (Kimi K3.1 Pro, Go; ADR 0010). `/spec` interviews and writes the spec, then opens the PRD umbrella issue. After Robin approves, `/plan` breaks the spec into vertical-slice sub-issues with blockers, `area:*` labels, a flag plan and acceptance criteria.
-- **`build`** (DeepSeek V4.1 Flash, Go). Run in the main checkout, `/build` picks unblocked slices (at most 3), creates one worktree off `main` per slice and opens a slice session. In each slice session, `/build #N` runs RED → GREEN → verify in the sandbox → local review (addy `code-reviewer`, plus `security-auditor` when risky paths change) → opens the PR. The PR monitor then loops on CodeRabbit comments and GitHub Actions until both are clean. Robin merges.
+- **`build`** (DeepSeek V4.1 Flash, Go). Run in the main checkout, `/build` picks unblocked slices (at most 3), creates one worktree off `main` per slice and opens a slice session. In each slice session, `/build #N` runs RED → GREEN → verify in the sandbox → local review (addy `code-reviewer`, plus `security-auditor` when risky paths change) → opens the PR. The PR monitor then loops on review comments from any PR tool and GitHub Actions until every review thread is resolved and checks are green. Robin merges.
 
 Skills are loaded deterministically. Commands and kickoff prompts name them with `@skill-id`, and the slice's `area:<app>` labels add each logical component's domain skills and any applicable scoped `.agents/skills/`. Each project has one app repo; Robin's Project Template (`templates/project/TEMPLATE.md`) guides framework-native single-app layouts and multi-app monorepos without requiring `apps/`, `packages/`, a separate API or a particular stack. Slices are vertical through every applicable layer (for example migration → API → generated client → web → E2E) in one PR, skipping layers and artifacts the project does not have. **Every test run is fully isolated in Docker**, built only from the repo's own Dockerfiles and Compose test contract, and assumes nothing from the machine it runs on. On the server, where OpenCode itself runs in Docker, each slice gets its own Sysbox container. On the Mac, Docker Compose runs directly with a per-slice project. GitHub Actions runs the same isolated test run as the final gate, and deploys the separate app images.
 
@@ -68,9 +68,9 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 ### Ship
 
 32. As Robin, I want the slice session to push the branch and open a PR to `main` that links the slice issue and its PRD, so that GitHub shows the full trail.
-33. As Robin, I want a PR monitor that waits on a timer without spending tokens and wakes the slice session when CodeRabbit comments or Actions results arrive, so that waiting is free.
+33. As Robin, I want a PR monitor that waits on a timer without spending tokens and wakes the slice session when review comments from any PR tool or Actions results arrive, so that waiting is free.
 34. As Robin, I want the slice session to fix each comment or reply "won't fix, because…", capped at about 5 rounds, so that review loops end.
-35. As Robin, I want GitHub Actions green and all CodeRabbit threads resolved as the final gate, with me as the merge approver, so that nothing reaches `main` without my say.
+35. As Robin, I want GitHub Actions green and all PR review threads resolved, regardless of which tool created them as the final gate, with me as the merge approver, so that nothing reaches `main` without my say.
 36. As Robin, I want open slices updated from `main` after every merge, so that they don't drift.
 37. As Robin, I want the slice worktree, branch and sandbox cleaned up safely after merge, so that nothing leaks and no unpushed work is lost.
 38. As Robin, I want the PRD issue to close when its last slice merges, so that umbrella tracking stays accurate.
@@ -83,7 +83,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 42. As Robin, I want the new repo to start from an empty `git init` with no files from earlier config repos, so that there is one way to work and no legacy to maintain.
 43. As Robin, I want a repo setup skill that scaffolds or upgrades an app repo using my Project Template's single-app and multi-app guidance (preserving idiomatic structure and choosing internals per stack), plus the Compose test contract, the `AGENTS.md` front matter, the CI workflow and branch protection on `ci-ok`, with no flow templates copied into the repo,
 44. As Robin, I want server-only behaviour (gitdir rewrite, delete guard, localhost rewrite) to live in opencode-server overrides, so that the config stays universal.
-45. As Robin, I want the server image to clone `opencode-config-v2` and drop the CodeRabbit CLI and preview/tunnel settings, so that the server matches the new flow.
+45. As Robin, I want the server image to clone `opencode-config-v2` and drop local PR-review CLIs and preview/tunnel settings, so that the server matches the new flow.
 
 ## Implementation Decisions
 
@@ -103,7 +103,7 @@ Skills are loaded deterministically. Commands and kickoff prompts name them with
 
 - **Sandbox sidecar:** a new service that alone mounts the host Docker socket. It exposes a fixed internal API (`create`, `exec`, `destroy`, `status`), forces the `sysbox-runc` runtime and the sandbox image, and rejects anything else. The OpenCode container no longer mounts the socket.
 - **Overrides:** `opencode.server.json` rewritten in the v2 shape (`permissions`, `mcp.servers`), with the redundant external-directory allows removed. Server-only plugins stay: gitdir rewrite, delete guard, localhost rewrite.
-- **Image:** the CodeRabbit CLI and the preview/tunnel env vars are removed. `CONFIG_REPO` points at `opencode-config-v2` and `CONFIG_REF` at its tag or `main`. OpenCode stays pinned at 2.3.0.
+- **Image:** local PR-review CLIs and the preview/tunnel env vars are removed. `CONFIG_REPO` points at `opencode-config-v2` and `CONFIG_REF` at its tag or `main`. OpenCode stays pinned at 2.3.0.
 
 ### Contracts
 
@@ -142,7 +142,7 @@ Resolved 2026-11-14 — evidence and consequences in `../adr/0009-spike-results.
 
 - OpenCode 1.x compatibility, migration shims, and any content from earlier config repos.
 - Cloudflare skills, preview/staging deploys, and running apps for manual QA (pull the branch locally or deploy to staging).
-- Local CodeRabbit CLI review.
+- Local PR-review CLI review.
 - Releases (done by tag, outside the pipeline).
 - Kilo, OpenRouter and fallback agents.
 - Cross-repo fanout. Each project uses one repo, with either a single-app or multi-app layout; moving existing repos is separate work done per project with `repo-setup`.

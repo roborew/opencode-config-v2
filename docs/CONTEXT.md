@@ -15,7 +15,7 @@
 - **Evidence:** a recorded sandbox run `{sha, cmd, passed}` used by `redgreen_check`.
 - **RED / GREEN:** a test-only commit whose evidence fails, followed by a code commit whose evidence passes.
 - **Flag:** a temporary toggle that keeps incomplete behaviour dark on `main`. Each one has a `flag-removal` slice.
-- **Gate:** a check a slice must pass. Local gates: `sandbox_gate` passes, `redgreen_check` is OK, and the persona review is done. Remote gates: CodeRabbit threads are resolved and Actions is green. Human gate: Robin merges.
+- **Gate:** a check a slice must pass. Local gates: `sandbox_gate` passes, `redgreen_check` is OK, and the persona review is done. Remote gates: all PR review threads are resolved, regardless of which tool created them, and Actions is green. Human gate: Robin merges.
 - **PR monitor:** the zero-token wait loop after a PR opens. It wakes the slice session when something changes, notifies the central session on READY/BLOCKED/MERGED, and stays armed after READY until the PR merges or closes.
 - **Round:** one wake → fix → push cycle of the PR monitor. At most 5.
 - **BLOCKED:** a slice that stopped and needs a human or a spec change. The reason is posted on its issue.

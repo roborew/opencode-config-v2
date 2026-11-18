@@ -42,6 +42,8 @@ interface WatchRecord {
   active: boolean
 }
 
+// Do not filter by reviewer or bot: CodeRabbit, Kilo, Copilot, security tools
+// and humans all produce the same review-thread contract.
 const PR_QUERY = `
 query($owner:String!,$name:String!,$number:Int!){
   repository(owner:$owner,name:$name){

@@ -49,7 +49,7 @@ choices. How the flow tests is defined separately by the test contract in
 The opencode-server image clones this repo at `CONFIG_REF` into the container's
 config directory and adds the server-only overrides (sidecar, gitdir rewrite,
 delete guard, localhost rewrite) — see blueprint §10–§11 and tickets 09–10 in the
-opencode-server repo. No CodeRabbit CLI and no preview/tunnel settings there.
+opencode-server repo. No local PR-review CLI and no preview/tunnel settings there.
 
 ## The delivery flow
 
@@ -82,7 +82,7 @@ flowchart TD
 2. **`/build`** — central build starts up to three unblocked slices, each in its
    own worktree and session.
 3. **Workers exhaust the automated loop** — local tests and review, then GitHub
-   Actions and CodeRabbit. You are called only when a PR is READY or BLOCKED.
+   Actions and PR review comments from any tool. You are called only when a PR is READY or BLOCKED.
 4. **You review and test.** For a problem, tell central build; it wakes the same
    worker and PR. Otherwise merge in GitHub and tell build which slice merged.
 5. **Build reconciles** — removes merged worktrees, confirms issue closure,

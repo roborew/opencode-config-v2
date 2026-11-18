@@ -7,7 +7,9 @@ description: The zero-token PR wait loop — call prmon_watch after opening a PR
 
 After `/ship` opens the PR, call `prmon_watch({ slice, pr })` and go idle. The
 monitor polls GitHub on a timer (`gh api graphql`) — no model calls happen
-between wakes.
+between wakes. Every review thread is included regardless of its author or app:
+CodeRabbit, Kilo, Copilot, security scanners and human reviewers all follow the
+same fix-or-reply-and-resolve loop.
 
 ## Handling a wake-up
 

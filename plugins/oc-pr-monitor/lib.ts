@@ -77,7 +77,7 @@ export function wakeText(slice: number, pr: number, summary: WakeSummary, round:
   if (summary.newUnresolvedThreads.length === 0 && summary.failedChecks.length === 0) {
     parts.push(`No new unresolved threads and no failed checks (${summary.threadsOpen} threads still open).`)
   }
-  parts.push("Fix each item (commit, push) or reply \"Won't fix, because…\" and resolve it. Never merge; Robin merges.")
+  parts.push("Fix each item (commit, push) or reply \"Won't fix, because…\" and resolve it. Never merge; the user merges.")
   return parts.join("\n")
 }
 

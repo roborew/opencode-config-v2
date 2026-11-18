@@ -372,9 +372,9 @@ test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
 
 **CI:** the PR gate runs the same isolated Compose test run. A final aggregate job (`ci-ok`) is the single required check. Image build and deploy workflows are separate and outside this flow.
 
-**Branch protection on `main`:** require `ci-ok`, 1 approving review (Robin) and resolved conversations (CodeRabbit). No force push.
+**Branch protection on `main`:** require `ci-ok`, 1 approving review (Robin) and resolved conversations from any PR review tool. No force push.
 
-**CodeRabbit:** the GitHub app, installed per repo by Robin. It isn't run locally.
+**PR review tools:** any GitHub app or reviewer may create review threads — for example CodeRabbit, Kilo, Copilot or a security scanner. The monitor does not filter by author or tool, and no review CLI runs locally.
 
 ## 10. Sandbox sidecar contract (implemented in opencode-server)
 
@@ -398,7 +398,7 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 - `CONFIG_REPO=https://github.com/roborew/opencode-config-v2.git` and `CONFIG_REF=<tag or main>`, cloned into the config directory.
 - Server-only overrides, merged on top in the 2.0 shape: the gitdir rewrite plugin (so host Git tools can open worktrees), the worktree delete guard, the localhost → host rewrite plugin, and `OC_SANDBOX_BACKEND=sysbox`, `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN`.
 - The sidecar from §10. The OpenCode container must not mount the Docker socket.
-- No CodeRabbit CLI, and no preview/tunnel settings.
+- No local PR-review CLI, and no preview/tunnel settings.
 
 ## 12. Environment and secrets (Robin enters every value himself)
 
@@ -409,7 +409,7 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 | `OC_SANDBOX_BACKEND`                 | env (optional)                  | `auto` \| `sysbox` \| `docker`                        |
 | Real app secrets                     | Robin's secrets manager         | never needed for tests (§9.2), never pulled by agents |
 | `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                      | sidecar access                                        |
-| CodeRabbit app                       | GitHub, per repo                | PR review                                             |
+| PR review apps (optional)            | GitHub, per repo                | PR review comments from any tool                      |
 
 ## 13. This repo's own CI (`.github/workflows/ci.yml`)
 

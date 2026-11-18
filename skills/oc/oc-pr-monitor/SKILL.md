@@ -25,10 +25,15 @@ Then go idle again. Never merge; Robin merges.
 - Each wake is one round. The cap is 5 rounds — on the 6th the slice becomes
   BLOCKED and the monitor posts a summary on the issue.
 - READY means every review thread is resolved and `ci-ok` passed: the monitor
-  sets `status:ready`, posts a short PR comment and stops the watch.
+  sets `status:ready`, posts a short PR comment and notifies both the worker and
+  central build session. It keeps watching for late feedback until merge.
+- MERGED stops the watch and notifies central build. CLOSED without merge also
+  stops it and asks the user to decide whether to reopen or close the slice.
 
 ## Tools
 
-- `prmon_watch({ slice, pr })` — start watching; returns `{ watching: true }`.
+- `prmon_watch({ slice, pr })` — start or resume watching; records the PR URL
+  and `in-review` state, then returns `{ watching: true }`. Call it again after
+  pushing a fix requested through `slice_message`.
 - `prmon_status({ slice })` — `{ round, threadsOpen, checks: {pending, failed,
   passed}, state }`.

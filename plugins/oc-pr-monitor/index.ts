@@ -1,6 +1,8 @@
 import { Plugin } from "@opencode/plugin"
 import { execSync } from "node:child_process"
+import { randomUUID } from "node:crypto"
 import { diffSnapshot, isReady, parsePRGraphql, wakeText, type PRSnapshot } from "./lib"
+import type { SliceRecord } from "../oc-worktree/lib"
 
 /**
  * oc-pr-monitor — namespace "prmon": prmon_watch, prmon_status.
@@ -8,10 +10,11 @@ import { diffSnapshot, isReady, parsePRGraphql, wakeText, type PRSnapshot } from
  * A zero-token wait loop: while a watch is active, a plain timer polls GitHub
  * through `gh api graphql` (no model calls). When the snapshot changes, the
  * slice session gets a compact wake prompt listing only the new unresolved
- * threads and failed checks. READY (all threads resolved + ci-ok passed) sets
- * status:ready and posts a short PR comment; more than maxRounds wakes mark
- * the slice BLOCKED with a summary on the issue. Watches survive a server
- * restart: they are stored in plugin storage and re-armed on setup.
+ * threads and failed checks. READY (all threads resolved + ci-ok passed) updates
+ * the slice record and notifies the central build session. The watch stays armed
+ * for late feedback until the PR merges or closes. More than maxRounds wakes
+ * marks the slice BLOCKED. Watches survive a server restart: they are stored in
+ * plugin storage and re-armed on setup.
  */
 
 const sh = (cmd: string, cwd: string, timeoutMs = 60_000): { code: number; out: string } => {
@@ -24,6 +27,7 @@ const sh = (cmd: string, cwd: string, timeoutMs = 60_000): { code: number; out: 
 }
 
 interface WatchRecord {
+  watchID?: string
   slice: number
   pr: number
   sessionID: string
@@ -32,6 +36,9 @@ interface WatchRecord {
   name: string
   round: number
   lastSnapshot?: PRSnapshot
+  prURL?: string
+  readyNotified?: boolean
+  retryTerminalNotification?: "blocked" | "closed"
   active: boolean
 }
 
@@ -52,6 +59,9 @@ export default Plugin.define({
     const intervalMs = Number((ctx.options as any)?.intervalMs ?? 120_000)
     const maxRounds = Number((ctx.options as any)?.maxRounds ?? 5)
     const timers = new Map<number, ReturnType<typeof setInterval>>()
+    const liveWatches = new Map<number, WatchRecord>()
+    const ticking = new Set<number>()
+    const stateQueues = new Map<number, Promise<unknown>>()
 
     console.log(`[oc-pr-monitor] active (interval ${intervalMs}ms, maxRounds ${maxRounds})`)
 
@@ -74,46 +84,181 @@ export default Plugin.define({
 
     const gh = (args: string, cwd: string) => sh(`gh ${args}`, cwd)
 
-    const save = async (watch: WatchRecord) => ctx.storage.set(`watches/${watch.slice}`, watch)
+    const setSliceState = (watch: WatchRecord, state: SliceRecord["state"], resume = false): Promise<boolean> => {
+      const previous = stateQueues.get(watch.slice) ?? Promise.resolve()
+      const queued = previous.catch(() => undefined).then(async () => {
+        if (!resume && !isCurrent(watch)) return false
+        const record = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+        if (!resume && !isCurrent(watch)) return false
+        if (record?.state === "blocked" && state !== "blocked" && !resume) return false
+        if (record) {
+          record.state = state
+          record.prURL = watch.prURL ?? record.prURL
+          await ctx.storage.set(`slices/${watch.slice}`, record as any)
+        }
+        const label = state === "building" ? "in-progress" : state
+        const removals = ["in-progress", "in-review", "ready", "blocked"]
+          .filter((name) => name !== label)
+          .map((name) => ` --remove-label status:${name}`)
+          .join("")
+        gh(`issue edit ${watch.slice} --add-label status:${label}${removals}`, watch.repoDir)
+        return true
+      })
+      stateQueues.set(watch.slice, queued)
+      void queued.finally(() => {
+        if (stateQueues.get(watch.slice) === queued) stateQueues.delete(watch.slice)
+      })
+      return queued
+    }
+
+    type Delivery = "delivered" | "failed" | "unconfigured"
+    const notifyCoordinator = async (watch: WatchRecord, text: string): Promise<Delivery> => {
+      const record = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+      if (!record?.coordinatorSessionID) {
+        console.error(`[oc-pr-monitor] slice #${watch.slice} has no coordinatorSessionID; run slice_status from the central build session to backfill it`)
+        return "unconfigured"
+      }
+      try {
+        await ctx.session.prompt({ sessionID: record.coordinatorSessionID, text, delivery: "queue" })
+        return "delivered"
+      } catch (e: any) {
+        console.error("[oc-pr-monitor] coordinator notify failed:", e?.message ?? e)
+        return "failed"
+      }
+    }
+
+    const isCurrent = (watch: WatchRecord) => watch.active && liveWatches.get(watch.slice) === watch
+
+    const save = async (watch: WatchRecord, replace = false): Promise<boolean> => {
+      if (!replace) {
+        const stored = (await ctx.storage.get(`watches/${watch.slice}`)) as WatchRecord | undefined
+        if (stored?.watchID && stored.watchID !== watch.watchID) return false
+      }
+      await ctx.storage.set(`watches/${watch.slice}`, watch as any)
+      return true
+    }
 
     const stop = async (watch: WatchRecord) => {
       watch.active = false
-      const t = timers.get(watch.slice)
-      if (t) {
-        clearInterval(t)
+      if (liveWatches.get(watch.slice) === watch) {
+        const t = timers.get(watch.slice)
+        if (t) clearInterval(t)
         timers.delete(watch.slice)
+        liveWatches.delete(watch.slice)
       }
       await save(watch)
     }
 
     const tick = async (watch: WatchRecord) => {
+      if (!isCurrent(watch)) return
+      const durable = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+      if (!isCurrent(watch)) return
+      if (!durable) {
+        console.log(`[oc-pr-monitor] slice #${watch.slice} record removed — stopping the watch`)
+        await stop(watch)
+        return
+      }
+      if (durable.state === "building") {
+        // slice_message owns the worker until it fixes and explicitly re-watches.
+        await save(watch)
+        return
+      }
+      if (durable.state === "blocked") {
+        if (watch.retryTerminalNotification) {
+          const kind = watch.retryTerminalNotification
+          const text = kind === "closed"
+            ? `PR #${watch.pr} for slice #${watch.slice} was CLOSED without merging. The user needs to decide whether to reopen it or close the slice.`
+            : `Slice #${watch.slice} / PR #${watch.pr} is BLOCKED after ${maxRounds} review rounds. See the slice issue for the summary${watch.prURL ? ` and PR: ${watch.prURL}` : ""}.`
+          const delivery = await notifyCoordinator(watch, text)
+          if (!isCurrent(watch)) return
+          if (delivery !== "failed") await stop(watch)
+          else await save(watch)
+        } else {
+          await stop(watch)
+        }
+        return
+      }
+
       const snapshot = fetchSnapshot(watch)
       if (!snapshot) return
       if (snapshot.state === "MERGED") {
         console.log(`[oc-pr-monitor] PR #${watch.pr} merged — stopping the watch`)
-        await stop(watch)
+        const delivery = await notifyCoordinator(
+          watch,
+          `PR #${watch.pr} for slice #${watch.slice} is MERGED${watch.prURL ? `: ${watch.prURL}` : ""}. Wait for the user's instruction, then run the main-checkout reconciliation: slice_finish, slice_sync, close the PRD if complete, and start newly unblocked slices.`,
+        )
+        if (!isCurrent(watch)) return
+        if (delivery !== "failed") await stop(watch)
+        else await save(watch)
         return
       }
+      if (snapshot.state === "CLOSED") {
+        await setSliceState(watch, "blocked")
+        watch.retryTerminalNotification = "closed"
+        const delivery = await notifyCoordinator(watch, `PR #${watch.pr} for slice #${watch.slice} was CLOSED without merging. The user needs to decide whether to reopen it or close the slice.`)
+        if (!isCurrent(watch)) return
+        if (delivery !== "failed") await stop(watch)
+        else await save(watch)
+        return
+      }
+
+      const wasReady = watch.lastSnapshot ? isReady(watch.lastSnapshot) : durable.state === "ready"
       const diff = diffSnapshot(watch.lastSnapshot, snapshot)
       watch.lastSnapshot = snapshot
 
       if (isReady(snapshot)) {
-        console.log(`[oc-pr-monitor] PR #${watch.pr} is READY — status:ready`)
-        gh(`issue edit ${watch.slice} --add-label status:ready`, watch.repoDir)
-        gh(`pr comment ${watch.pr} --body "READY: all review threads resolved and ci-ok green. Robin merges."`, watch.repoDir)
-        await ctx.session
-          .prompt({
-            sessionID: watch.sessionID,
-            text: `PR #${watch.pr} is READY (all threads resolved, ci-ok green). Go idle; Robin merges.`,
-            delivery: "queue",
-          })
-          .catch((e: any) => console.error("[oc-pr-monitor] READY notify failed:", e?.message ?? e))
-        await stop(watch)
+        if (durable.state !== "ready") {
+          console.log(`[oc-pr-monitor] PR #${watch.pr} is READY — status:ready`)
+          watch.readyNotified = false
+          if (!await setSliceState(watch, "ready")) {
+            await stop(watch)
+            return
+          }
+          if (!isCurrent(watch)) return
+          await ctx.session
+            .prompt({
+              sessionID: watch.sessionID,
+              text: `PR #${watch.pr} is READY (all threads resolved, ci-ok green). Go idle; the monitor remains armed for late feedback until merge.`,
+              delivery: "queue",
+            })
+            .catch((e: any) => console.error("[oc-pr-monitor] READY worker notify failed:", e?.message ?? e))
+          if (!isCurrent(watch)) return
+        }
+        if (!watch.readyNotified) {
+          const delivery = await notifyCoordinator(
+            watch,
+            `Slice #${watch.slice} / PR #${watch.pr} is READY for user review and testing${watch.prURL ? `: ${watch.prURL}` : ""}. All review threads are resolved and ci-ok is green. If the user finds a problem, use slice_message to wake the existing worker; never merge.`,
+          )
+          if (!isCurrent(watch)) return
+          const latest = (await ctx.storage.get(`slices/${watch.slice}`)) as SliceRecord | undefined
+          if (!latest || latest.state === "blocked") {
+            await stop(watch)
+            return
+          }
+          if (latest.state !== "ready") {
+            await save(watch)
+            return
+          }
+          if (delivery !== "failed") {
+            watch.readyNotified = true
+            gh(`pr comment ${watch.pr} --body "READY: all review threads resolved and ci-ok green. The user reviews, tests and merges."`, watch.repoDir)
+          }
+        }
+        await save(watch)
         return
       }
 
+      if (wasReady) {
+        watch.readyNotified = false
+        if (!await setSliceState(watch, "in-review")) {
+          await stop(watch)
+          return
+        }
+        await notifyCoordinator(watch, `PR #${watch.pr} for slice #${watch.slice} is no longer READY after a new commit, comment or check change. The worker will handle any actionable feedback before it is presented again.`)
+      }
+
       if (diff.newUnresolvedThreads.length === 0 && diff.failedChecks.length === 0) {
-        await save(watch) // snapshot moved on, nothing new to wake for
+        await save(watch) // pending checks need no model call; a later failure or READY will wake us
         return
       }
 
@@ -124,6 +269,8 @@ export default Plugin.define({
           `issue comment ${watch.slice} --body "BLOCKED: the PR did not converge within ${maxRounds} review rounds. Latest open threads: ${snapshot.threads.filter((t) => !t.resolved).length}. Robin takes a look."`,
           watch.repoDir,
         )
+        await setSliceState(watch, "blocked")
+        watch.retryTerminalNotification = "blocked"
         await ctx.session
           .prompt({
             sessionID: watch.sessionID,
@@ -131,7 +278,10 @@ export default Plugin.define({
             delivery: "queue",
           })
           .catch(() => { })
-        await stop(watch)
+        const delivery = await notifyCoordinator(watch, `Slice #${watch.slice} / PR #${watch.pr} is BLOCKED after ${maxRounds} review rounds. See the slice issue for the summary${watch.prURL ? ` and PR: ${watch.prURL}` : ""}.`)
+        if (!isCurrent(watch)) return
+        if (delivery !== "failed") await stop(watch)
+        else await save(watch)
         return
       }
 
@@ -144,10 +294,20 @@ export default Plugin.define({
     }
 
     const arm = async (watch: WatchRecord) => {
-      if (!watch.active || timers.has(watch.slice)) return
+      if (!watch.active) return
+      watch.watchID ??= randomUUID()
+      liveWatches.set(watch.slice, watch)
+      const previous = timers.get(watch.slice)
+      if (previous) clearInterval(previous)
       timers.set(
         watch.slice,
-        setInterval(() => void tick(watch).catch((e) => console.error("[oc-pr-monitor] tick failed:", e)), intervalMs),
+        setInterval(() => {
+          if (ticking.has(watch.slice) || !isCurrent(watch)) return
+          ticking.add(watch.slice)
+          void tick(watch)
+            .catch((e) => console.error("[oc-pr-monitor] tick failed:", e))
+            .finally(() => ticking.delete(watch.slice))
+        }, intervalMs),
       )
     }
 
@@ -170,7 +330,7 @@ export default Plugin.define({
 
       editor.add({
         name: "watch",
-        description: "Start watching a PR: poll on a timer without spending tokens, wake this session only on change. READY sets status:ready; more than the round cap BLOCKS the slice.",
+        description: "Watch a PR until merge: wake the worker on feedback, notify the coordinator on READY/BLOCKED/MERGED, and keep watching after READY for late changes.",
         input: {
           type: "object",
           properties: { slice: { type: "number" }, pr: { type: "number" } },
@@ -191,6 +351,7 @@ export default Plugin.define({
           const m = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
           if (!m) return { content: `BLOCKED: could not read owner/repo from ${url}` }
           const watch: WatchRecord = {
+            watchID: randomUUID(),
             slice: input.slice,
             pr: input.pr,
             sessionID: context?.sessionID ?? "",
@@ -198,9 +359,13 @@ export default Plugin.define({
             owner: m[1]!,
             name: m[2]!,
             round: 0,
+            prURL: url,
+            readyNotified: false,
             active: true,
           }
-          await save(watch)
+          liveWatches.set(input.slice, watch)
+          await setSliceState(watch, "in-review", true)
+          await save(watch, true)
           await arm(watch)
           return { content: `watching PR #${input.pr} (slice #${input.slice}): interval ${intervalMs}ms, round cap ${maxRounds}. Going idle — the monitor wakes this session only on change.` }
         },

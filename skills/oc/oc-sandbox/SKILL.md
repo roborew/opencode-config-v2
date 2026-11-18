@@ -42,7 +42,8 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
   with no preceding test-only commit is a violation. Generated commits count
   as neither.
 - On failure, follow debugging-and-error-recovery; after three failed attempts
-  on the same criterion, stop as BLOCKED and comment on the slice issue.
+  on the same criterion, call `slice_block` with the actionable reason and go idle.
+  That comments on the issue and notifies the central build session.
 - Test-path globs come from the repo's `AGENTS.md` front matter (`test_globs`).
 
 Never run `docker`, `sandbox` or `just` test commands directly — they are denied

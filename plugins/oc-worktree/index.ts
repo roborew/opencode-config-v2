@@ -15,8 +15,8 @@ import {
 import { sandboxId } from "../oc-sandbox/lib"
 
 /**
- * oc-worktree — namespace "slice": slice_start, slice_status, slice_sync,
- * slice_finish (blueprint §7.1), plus the custom worktree strategy that gives
+ * oc-worktree — namespace "slice": slice_start, slice_status, slice_message,
+ * slice_block, slice_sync and slice_finish (blueprint §7.1), plus the custom worktree strategy that gives
  * slice worktrees their branch: `git worktree add -b slice/<N>-<slug> <dir>
  * origin/main` (checked out, not detached — the built-in strategy detaches,
  * ADR 0009).
@@ -35,6 +35,7 @@ const sh = (cmd: string, cwd: string, timeoutMs = 60_000): { code: number; out: 
 }
 
 const gitIn = (cwd: string, args: string) => sh(`git ${args}`, cwd, 30_000)
+const shellQuote = (value: string) => "'" + value.replace(/'/g, `'"'"'`) + "'"
 
 export default Plugin.define({
   id: "oc-worktree",
@@ -83,6 +84,23 @@ export default Plugin.define({
     }
 
     const gh = (repoDir: string, args: string) => sh(`gh ${args}`, repoDir, 60_000)
+
+    const setSliceState = async (record: SliceRecord, state: SliceRecord["state"]) => {
+      record.state = state
+      await ctx.storage.set(`slices/${record.issue}`, record as any)
+      const label = state === "building" ? "in-progress" : state
+      const removals = ["in-progress", "in-review", "ready", "blocked"]
+        .filter((name) => name !== label)
+        .map((name) => ` --remove-label status:${name}`)
+        .join("")
+      gh(canonical, `issue edit ${record.issue} --add-label status:${label}${removals}`)
+    }
+
+    const notifyCoordinator = async (record: SliceRecord, text: string) => {
+      if (!record.coordinatorSessionID) return false
+      await ctx.session.prompt({ sessionID: record.coordinatorSessionID, text, delivery: "queue" })
+      return true
+    }
 
     const issueInfo = (repoDir: string, issue: number): IssueInfo | { error: string } => {
       const res = gh(repoDir, `issue view ${issue} --json number,title,labels,state,body`)
@@ -166,6 +184,10 @@ export default Plugin.define({
           if (dir !== canonical) {
             return { content: `BLOCKED: run /build from the main checkout (${canonical}), not from ${dir}` }
           }
+          const existing = (await ctx.storage.get(`slices/${input.issue}`)) as SliceRecord | undefined
+          if (existing) {
+            return { content: `slice #${input.issue} is already active (${existing.state}) in ${existing.directory}; use slice_message for feedback or slice_status for its PR` }
+          }
           const info = issueInfo(canonical, input.issue)
           if ("error" in info) return { content: `BLOCKED: ${info.error}` }
           if (String(info.state).toUpperCase() === "CLOSED") {
@@ -214,11 +236,12 @@ export default Plugin.define({
             prd,
             branch,
             directory,
+            coordinatorSessionID: context?.sessionID ?? undefined,
             state: "building",
             createdAt: Date.now(),
           }
           writeSliceRecordFile(directory, record)
-          await ctx.storage.set(`slices/${input.issue}`, record)
+          await ctx.storage.set(`slices/${input.issue}`, record as any)
 
           let sessionID: string | undefined
           try {
@@ -227,9 +250,10 @@ export default Plugin.define({
               location: { directory },
             })
             sessionID = session.id ?? session.sessionID
+            if (!sessionID) throw new Error("session create returned no session ID")
             await ctx.session.command({ sessionID, name: "build", text: `#${input.issue}` })
             record.sessionID = sessionID
-            await ctx.storage.set(`slices/${input.issue}`, record)
+            await ctx.storage.set(`slices/${input.issue}`, record as any)
             writeSliceRecordFile(directory, record)
           } catch (error: any) {
             return {
@@ -238,7 +262,7 @@ export default Plugin.define({
           }
 
           ensureLabel(canonical, "status:in-progress")
-          gh(canonical, `issue edit ${input.issue} --add-label status:in-progress`)
+          await setSliceState(record, "building")
 
           return {
             content:
@@ -248,14 +272,100 @@ export default Plugin.define({
         },
       )
 
-      tool("status", "Report every active slice: issue, branch, session, state, PR.", {}, async () => {
+      tool("status", "Report every active slice: issue, branch, session, state, PR. Also backfills the coordinator session on legacy records.", {}, async (_input, context) => {
         const slices = await activeSlices()
+        const dir = await sessionDir(context.sessionID)
+        if (dir === canonical && context.sessionID) {
+          for (const record of slices) {
+            if (!record.coordinatorSessionID) {
+              record.coordinatorSessionID = context.sessionID
+              await ctx.storage.set(`slices/${record.issue}`, record as any)
+            }
+          }
+        }
         if (slices.length === 0) return { content: "no active slices" }
         const lines = slices.map(
           (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}`,
         )
         return { content: `slice_status:\n${lines.join("\n")}` }
       })
+
+      tool(
+        "message",
+        "Route user feedback from the main checkout to the existing slice session. The worker fixes the same worktree, branch and PR, then restarts its PR monitor.",
+        {
+          issue: { type: "number", description: "the slice issue number" },
+          text: { type: "string", description: "User review or testing feedback" },
+        },
+        async (input: { issue: number; text: string }, context) => {
+          const dir = await sessionDir(context.sessionID)
+          if (dir !== canonical) {
+            return { content: `BLOCKED: route feedback from the main checkout (${canonical}), not from ${dir}` }
+          }
+          if (!input.text.trim()) return { content: "BLOCKED: feedback text is required" }
+          const record = (await ctx.storage.get(`slices/${input.issue}`)) as SliceRecord | undefined
+          if (!record) return { content: `BLOCKED: no active slice record for #${input.issue}; post-merge fixes need a new slice` }
+          if (!record.sessionID) return { content: `BLOCKED: slice #${input.issue} has no existing worker session` }
+          const pr = gh(canonical, `pr view ${JSON.stringify(record.branch)} --json state,url`)
+          if (pr.code !== 0) return { content: `BLOCKED: could not verify the PR for slice #${input.issue}: ${pr.out.trim().slice(0, 200)}` }
+          let prState: string
+          try {
+            const detail = JSON.parse(pr.out)
+            prState = String(detail.state ?? "").toUpperCase()
+            record.prURL = detail.url ?? record.prURL
+          } catch {
+            return { content: `BLOCKED: could not read the PR state for slice #${input.issue}` }
+          }
+          if (prState !== "OPEN") {
+            return { content: `BLOCKED: the PR for slice #${input.issue} is ${prState || "not OPEN"}; post-merge or closed-PR fixes need a new slice` }
+          }
+
+          const text = [
+            `The user reviewed slice #${input.issue} and found a problem:`,
+            input.text.trim(),
+            "Resume this slice in the existing worktree and PR. Reproduce the problem, add regression coverage without weakening existing tests, fix it, run sandbox_gate and redgreen_check, review the new diff, then commit and push to the same branch. Call prmon_watch for the existing PR and go idle until it is READY. Do not open a new PR. If this requires a requirements change, call slice_block with the spec gap instead of guessing.",
+          ].join("\n\n")
+          try {
+            await ctx.session.prompt({ sessionID: record.sessionID, text, delivery: "queue" })
+          } catch (error: any) {
+            return { content: `BLOCKED: could not wake the worker for slice #${input.issue}: ${error?.message ?? error}` }
+          }
+          await setSliceState(record, "building")
+          return { content: `feedback sent to slice #${input.issue}; the existing worker is fixing the same PR and will report READY again` }
+        },
+      )
+
+      tool(
+        "block",
+        "Mark this slice BLOCKED from its own worktree, comment on the issue, and notify the central build session with the reason.",
+        {
+          issue: { type: "number", description: "the slice issue number" },
+          reason: { type: "string", description: "the actionable blocker or spec gap" },
+        },
+        async (input: { issue: number; reason: string }, context) => {
+          const dir = await sessionDir(context.sessionID)
+          const record = (await ctx.storage.get(`slices/${input.issue}`)) as SliceRecord | undefined
+          if (!record) return { content: `BLOCKED: no slice record for #${input.issue}` }
+          if (dir !== record.directory) {
+            return { content: `BLOCKED: slice_block for #${input.issue} must run in its own worktree (${record.directory})` }
+          }
+          if (!input.reason.trim()) return { content: "BLOCKED: a reason is required" }
+
+          await setSliceState(record, "blocked")
+          gh(canonical, `issue comment ${input.issue} --body ${shellQuote(`BLOCKED: ${input.reason.trim()}`)}`)
+          const text = `Slice #${input.issue} is BLOCKED: ${input.reason.trim()}${record.prURL ? `\nPR: ${record.prURL}` : ""}\nThe user should take this back to plan if it is a spec gap, or resolve it and resume the slice.`
+          if (!record.coordinatorSessionID) {
+            return { content: `slice #${input.issue} marked BLOCKED and commented on its issue, but no coordinator session is recorded. Run slice_status from the central build session to backfill it; the durable issue and slice record retain the blocker.` }
+          }
+          try {
+            await notifyCoordinator(record, text)
+          } catch (error: any) {
+            console.error(`[oc-worktree] BLOCKED notify failed for slice #${input.issue}:`, error?.message ?? error)
+            return { content: `slice #${input.issue} marked BLOCKED and commented on its issue, but coordinator notification failed: ${error?.message ?? error}. The durable issue and slice_status retain the blocker.` }
+          }
+          return { content: `slice #${input.issue} marked BLOCKED and reported to the central build session; go idle` }
+        },
+      )
 
       tool(
         "sync",
@@ -275,7 +385,7 @@ export default Plugin.define({
             if (merge.code !== 0) {
               gitIn(s.directory, "merge --abort")
               s.state = "blocked"
-              await ctx.storage.set(`slices/${s.issue}`, s)
+              await ctx.storage.set(`slices/${s.issue}`, s as any)
               results.push(`  #${s.issue}: BLOCKED — merge conflict with origin/main (never forced; resolve manually or re-slice)`)
             } else {
               results.push(`  #${s.issue}: merged origin/main`)

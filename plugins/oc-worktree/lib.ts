@@ -124,6 +124,7 @@ export interface SliceRecord {
   branch: string
   directory: string
   sessionID?: string
+  coordinatorSessionID?: string
   state: "building" | "in-review" | "ready" | "blocked"
   prURL?: string
   createdAt: number

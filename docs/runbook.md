@@ -6,6 +6,10 @@ Daily use of `opencode-config-v2` on the Mac (the server is the same flow; see
 
 ## The loop
 
+Stay in **one central session in the app repo's main checkout**. Slice sessions
+are visible for optional inspection, but you never need to visit them or move
+between worktrees.
+
 1. **`/spec <idea>`** — the plan agent interviews you before writing anything,
    then writes `docs/spec/<slug>.md` in the app repo and opens the PRD umbrella
    issue. Two approval gates: after the spec, and later before any slice issue
@@ -14,23 +18,33 @@ Daily use of `opencode-config-v2` on the Mac (the server is the same flow; see
    layer it needs: migration → API → generated client → web → E2E, one PR),
    shows you the numbered breakdown, and on approval creates the slice issues
    as sub-issues with `area:*` labels, blockers and `status:ready`.
-3. **`/build`** — in the app repo's main checkout: starts up to 3 unblocked
-   slices. Each gets a worktree off `origin/main` (`slice/<N>-<slug>`), a
-   session already running `/build #N`, and a warm sandbox.
-4. Watch the slice sessions work RED → GREEN through `sandbox_test`, in vertical
-   order, then `/review` (personas) and `/ship` (push, PR, monitor).
-5. **CodeRabbit + GitHub Actions** review the PR. The monitor wakes the slice
-   session on each new comment or failed check (max 5 rounds); each item is
-   fixed or answered "Won't fix, because…".
-6. **You merge.** After a merge: `/build` again to fan out the next slices —
-   `slice_sync` merges `main` into open slices, `slice_finish` (via the flow)
-   cleans up merged ones, and the PRD closes when its last slice merges.
+3. **Switch to `/build`** — this central session is now your persistent build
+   coordinator. It starts up to 3 unblocked slices. Each gets a worktree off
+   `origin/main` (`slice/<N>-<slug>`) and a session already running `/build #N`.
+4. **Workers do the routine work** — RED → GREEN through `sandbox_test`, local
+   persona review, then `/ship` to push, open the PR and start its monitor.
+5. **Workers exhaust remote feedback before calling you** — CodeRabbit comments
+   and failed Actions checks wake the slice session (max 5 rounds); each item is
+   fixed or answered "Won't fix, because…". READY means every review thread is
+   resolved and `ci-ok` is green. The central session then tells you which PR to
+   review and test. The monitor stays armed for late feedback until merge.
+6. **If you find a problem, tell central build** — for example, "PR #42 misses
+   the empty-state recovery action." Build calls `slice_message`, waking the
+   existing worker with its original context. It fixes and verifies the same
+   branch and PR, restarts the monitor, and reports READY again. Do not create a
+   replacement worktree, session or PR.
+7. **If the PR is acceptable, merge it in GitHub.** Agents never merge.
+8. **Tell central build "I merged #N"** (or run `/build` again). Build verifies
+   the merge, calls `slice_finish`, confirms the `Closes #N` issue is closed,
+   calls `slice_sync` for active slices, closes the PRD if its last slice has
+   merged, then starts newly unblocked slices and reports `slice_status`.
 
 ## BLOCKED slices
 
 A slice that can't converge (3 failed attempts on the same criterion, merge
 conflicts in `slice_sync`, or the PR monitor's round cap) stops as BLOCKED with
-a short reason on its issue. Read the reason; it is usually a spec gap — take it
+a short reason on its issue. Worker and monitor BLOCKED states are also sent to
+the central build session. Read the reason; it is usually a spec gap — take it
 back to `/plan`, or resolve manually and re-run `/build #N`.
 
 ## Sandboxes

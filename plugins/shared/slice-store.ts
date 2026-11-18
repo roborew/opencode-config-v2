@@ -63,6 +63,42 @@ const staleLock = (lock: string): boolean => {
   }
 }
 
+const recoveryPath = (lock: string) => `${lock}.recovery`
+
+/**
+ * Serialize stale-lock recovery so two processes cannot both remove the same
+ * dead lock and have the second delete the first process's replacement.
+ */
+const acquireRecovery = (lock: string): boolean => {
+  const path = recoveryPath(lock)
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      const fd = openSync(path, "wx")
+      try {
+        writeSync(fd, String(process.pid))
+      } finally {
+        closeSync(fd)
+      }
+      return true
+    } catch (error: any) {
+      if (error?.code !== "EEXIST") throw error
+      let contents = ""
+      try {
+        contents = readFileSync(path, "utf8").trim()
+      } catch { }
+      const pid = Number(contents)
+      if (Number.isInteger(pid) && pid > 0 && !processAlive(pid)) {
+        try {
+          unlinkSync(path)
+        } catch { }
+        continue
+      }
+      sleep(10)
+    }
+  }
+  return false
+}
+
 const withLock = <T>(canonical: string, issue: number, task: () => T): T => {
   ensureDir(canonical)
   const lock = lockPath(canonical, issue)
@@ -73,9 +109,21 @@ const withLock = <T>(canonical: string, issue: number, task: () => T): T => {
     } catch (error: any) {
       if (error?.code !== "EEXIST") throw error
       if (staleLock(lock)) {
-        try {
-          unlinkSync(lock)
-        } catch { }
+        if (acquireRecovery(lock)) {
+          try {
+            // Re-check under the recovery lock: another process may already have
+            // replaced the stale lock with a live one.
+            if (staleLock(lock)) {
+              try {
+                unlinkSync(lock)
+              } catch { }
+            }
+          } finally {
+            try {
+              unlinkSync(recoveryPath(lock))
+            } catch { }
+          }
+        }
         continue
       }
       sleep(10)

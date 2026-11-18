@@ -136,6 +136,7 @@ export interface SliceRecord {
   syncClaim?: string
   syncClaimPID?: number
   pushPending?: boolean
+  pushCommit?: string
   cleanupComplete?: boolean
   createdAt: number
 }

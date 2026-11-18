@@ -97,11 +97,11 @@ export default Plugin.define({
       const args = [
         "api", "graphql",
         "-f", `query=${PR_QUERY}`,
-        "-F", `owner=${watch.owner}`,
-        "-F", `name=${watch.name}`,
+        "-f", `owner=${watch.owner}`,
+        "-f", `name=${watch.name}`,
         "-F", `number=${watch.pr}`,
       ]
-      if (cursor) args.push("-F", `cursor=${cursor}`)
+      if (cursor) args.push("-f", `cursor=${cursor}`)
       try {
         const { stdout } = await execFileAsync("gh", args, {
           cwd: watch.repoDir,
@@ -119,16 +119,21 @@ export default Plugin.define({
     const fetchSnapshot = async (watch: WatchRecord): Promise<{ snapshot: PRSnapshot; complete: boolean } | undefined> => {
       const first = await fetchPage(watch)
       if (!first) return undefined
+      // A terminal PR needs no review data; reconcile without waiting for pages.
+      if (first.state === "MERGED" || first.state === "CLOSED") return { snapshot: first, complete: true }
       const checks = [...first.checks]
       let page = first.checkPage
       let complete = true
       let pages = 0
+      let cursor: string | undefined
       while (page?.hasNextPage) {
-        if (!page.endCursor || pages >= 100) {
+        const nextCursor = page.endCursor
+        if (!nextCursor || nextCursor === cursor || pages >= 100) {
           complete = false
           break
         }
-        const next = await fetchPage(watch, page.endCursor)
+        cursor = nextCursor
+        const next = await fetchPage(watch, cursor)
         if (!next) {
           complete = false
           break
@@ -153,6 +158,7 @@ export default Plugin.define({
           record = current
           if (!current) return undefined
           if (current.state === "blocked" && state !== "blocked" && !resume) return current
+          if (state === "ready" && current.state === "building") return current
           if (current.syncClaim && state === "ready") return current
           if (current.pushPending && state === "ready") return current
           current.state = state
@@ -300,8 +306,16 @@ export default Plugin.define({
 
       // Only an open PR needs the full check list; terminal states were handled above.
       if (!fetched.complete) return
+      // Feedback can resume the slice while the fetch is in flight; use the
+      // durable state observed after it, not the state read before the poll.
+      const fresh = readSlice<SliceRecord>(canonical, watch.slice)
+      if (!isCurrent(watch)) return
+      if (!fresh) {
+        await stop(watch)
+        return
+      }
 
-      if (durable.state === "blocked") {
+      if (fresh.state === "blocked") {
         if (watch.retryTerminalNotification) {
           const kind = watch.retryTerminalNotification
           const text = kind === "closed"
@@ -317,18 +331,18 @@ export default Plugin.define({
         return
       }
 
-      if (durable.state === "building") {
+      if (fresh.state === "building") {
         // slice_message owns the worker until it fixes and explicitly re-watches.
         await save(watch)
         return
       }
 
-      const wasReady = durable.state === "ready"
+      const wasReady = fresh.state === "ready"
       const diff = diffSnapshot(watch.lastSnapshot, snapshot)
       const retrying = Boolean(watch.pendingWake)
 
       if (isReady(snapshot)) {
-        if (durable.state !== "ready") {
+        if (fresh.state !== "ready") {
           console.log(`[oc-pr-monitor] PR #${watch.pr} is READY — status:ready`)
           watch.readyWorkerNotified = false
           watch.readyCommentPosted = false
@@ -503,14 +517,16 @@ export default Plugin.define({
               .then((s: any) => s?.location?.directory)
               .catch(() => ctx.location.directory)
             : ctx.location.directory
-          const view = gh(`pr view ${input.pr} --json url,headRefName`, repoDir)
+          const view = gh(`pr view ${input.pr} --json url,headRefName,headRefOid`, repoDir)
           if (view.code !== 0) return { content: `BLOCKED: gh pr view ${input.pr} failed: ${view.out.trim().slice(0, 200)}` }
           let url: string
           let headRefName: string
+          let headOid: string
           try {
             const detail = JSON.parse(view.out)
             url = String(detail.url ?? "")
             headRefName = String(detail.headRefName ?? "")
+            headOid = String(detail.headRefOid ?? "")
           } catch {
             return { content: `BLOCKED: could not parse gh pr view ${input.pr}` }
           }
@@ -520,6 +536,23 @@ export default Plugin.define({
           if (!sliceRecord) return { content: `BLOCKED: no active slice record for #${input.slice}` }
           if (sliceRecord.branch !== headRefName) {
             return { content: `BLOCKED: PR #${input.pr} belongs to ${headRefName}, not slice #${input.slice} (${sliceRecord.branch})` }
+          }
+          if (sliceRecord.pushPending) {
+            // A synced in-review branch must reach the PR before READY is allowed;
+            // re-registering alone does not acknowledge the pending push.
+            const commit = sliceRecord.pushCommit
+            if (commit) {
+              const contained = headOid === commit || sh(`git merge-base --is-ancestor ${commit} ${headOid}`, repoDir, 30_000).code === 0
+              if (!contained) {
+                return { content: `BLOCKED: PR #${input.pr} head ${headOid || "(unknown)"} does not include the synced commit ${commit}; push the branch before re-watching` }
+              }
+            }
+            updateSlice<SliceRecord>(canonical, input.slice, (current) => {
+              if (!current) return current
+              current.pushPending = undefined
+              current.pushCommit = undefined
+              return current
+            })
           }
           const watch: WatchRecord = {
             watchID: randomUUID(),
@@ -539,10 +572,6 @@ export default Plugin.define({
           const previous = liveWatches.get(input.slice)
           try {
             await save(watch, true)
-            updateSlice<SliceRecord>(canonical, input.slice, (current) => {
-              if (current) current.pushPending = undefined
-              return current
-            })
             if (!await setSliceState(watch, "in-review", true)) throw new Error("slice state update was rejected")
           } catch (e: any) {
             if (previous) await save(previous, true).catch(() => false)

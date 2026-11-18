@@ -535,9 +535,51 @@ describe("PR monitor coordinator lifecycle", () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     const wake = prompt.mock.calls.find(([input]) => input.sessionID === "worker-7")?.[0]
+    expect(wake.text).toContain("Fix A")
     expect(wake.text).toContain("Fix B")
     expect(storage.values.get("watches/7").pendingWake).toBeUndefined()
     expect(storage.values.get("watches/7").round).toBe(1)
+  })
+
+  it("refuses to clear a pending push until the PR head contains the synced commit", async () => {
+    const { tools, storage, canonical } = await setupMonitor()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states", headRefOid: "oldsha" }))
+      if (command.includes("git merge-base")) throw Object.assign(new Error("not an ancestor"), { status: 1 })
+      return Buffer.from("")
+    })
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) {
+        current.pushPending = true
+        current.pushCommit = "newsha"
+      }
+      return current
+    })
+
+    const result = await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+
+    expect(result.content).toContain("does not include the synced commit")
+    expect(storage.values.get("slices/7").pushPending).toBe(true)
+  })
+
+  it("clears a pending push when the PR head already contains the synced commit", async () => {
+    const { tools, storage, canonical } = await setupMonitor()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states", headRefOid: "newsha" }))
+      return Buffer.from("")
+    })
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) {
+        current.pushPending = true
+        current.pushCommit = "newsha"
+      }
+      return current
+    })
+
+    const result = await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+
+    expect(result.content).toContain("watching PR #12")
+    expect(storage.values.get("slices/7").pushPending).toBeUndefined()
   })
 
   it("stops cleanly when slice_finish removes the record before the merge poll", async () => {

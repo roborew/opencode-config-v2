@@ -49,9 +49,51 @@ choices. How the flow tests is defined separately by the test contract in
 The opencode-server image clones this repo at `CONFIG_REF` into the container's
 config directory and adds the server-only overrides (sidecar, gitdir rewrite,
 delete guard, localhost rewrite) — see blueprint §10–§11 and tickets 09–10 in the
-opencode-server repo. No CodeRabbit CLI and no preview/tunnel settings there.
+opencode-server repo. No local PR-review CLI and no preview/tunnel settings there.
 
-### Update addy's skills
+## The delivery flow
+
+You work in **one central session in the app repo's main checkout**. Plan defines
+the work; build coordinates it. Slice sessions and worktrees are background
+workers — you never need to jump between them.
+
+```mermaid
+flowchart TD
+  Plan["Plan: approve spec and slices"]
+  Build["Central build session on main"]
+  Worker["Slice worker in its own worktree"]
+  Ready["READY: CI green and comments resolved"]
+  Feedback["User reports a problem to central build"]
+  Merge["User reviews, tests and merges"]
+  Next["Build cleans up, syncs and starts next slice"]
+
+  Plan -->|"Switch to build"| Build
+  Build -->|"Start up to 3 slices"| Worker
+  Worker -->|"Build, test, PR and review loop"| Ready
+  Ready -->|"Problem found"| Feedback
+  Feedback -->|"Wake the same worker"| Worker
+  Ready --> Merge
+  Merge -->|"Tell central build"| Next
+  Next -->|"Next unblocked slice"| Worker
+  Worker -->|"BLOCKED: spec gap"| Plan
+```
+
+1. **`/spec` then `/plan`** — approve the spec and the vertical-slice issues.
+2. **`/build`** — central build starts up to three unblocked slices, each in its
+   own worktree and session.
+3. **Workers exhaust the automated loop** — local tests and review, then GitHub
+   Actions and resolvable PR review threads from any tool. The coordinator reports
+   READY, BLOCKED and MERGED; READY asks you to review and test.
+4. **You review and test.** For a problem, tell central build; it wakes the same
+   worker and PR. Otherwise merge in GitHub and tell build which slice merged.
+5. **Build reconciles** — removes merged worktrees, confirms issue closure,
+   syncs active slices from `main`, closes a completed PRD, and starts the next
+   unblocked slices.
+
+The detailed daily loop and BLOCKED handling are in
+[`docs/runbook.md`](docs/runbook.md).
+
+## Update addy's skills
 
 Ask for the `addy-sync` skill: it fetches upstream at a target ref, shows the diff
 of `skills/addy/` and `references/` against the pinned commit in

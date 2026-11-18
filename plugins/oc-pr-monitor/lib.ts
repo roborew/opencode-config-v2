@@ -26,6 +26,7 @@ export interface PRSnapshot {
   threads: ThreadSnapshot[]
   checks: CheckSnapshot[]
   state: string // OPEN | MERGED | CLOSED
+  checkPage?: { hasNextPage: boolean; endCursor?: string }
 }
 
 export interface WakeSummary {
@@ -41,7 +42,7 @@ export function diffSnapshot(prev: PRSnapshot | undefined, next: PRSnapshot): Wa
     .filter((t) => !t.resolved)
     .filter((t) => {
       const before = known.get(t.id)
-      return !before || before.lastBody !== t.lastBody
+      return !before || before.lastBody !== t.lastBody || (before.resolved && !t.resolved)
     })
     .map((t) => ({ id: t.id, body: t.lastBody }))
   const failedChecks = next.checks
@@ -77,7 +78,7 @@ export function wakeText(slice: number, pr: number, summary: WakeSummary, round:
   if (summary.newUnresolvedThreads.length === 0 && summary.failedChecks.length === 0) {
     parts.push(`No new unresolved threads and no failed checks (${summary.threadsOpen} threads still open).`)
   }
-  parts.push("Fix each item (commit, push) or reply \"Won't fix, because…\" and resolve it. Never merge; Robin merges.")
+  parts.push("Fix each item (commit, push) or reply \"Won't fix, because…\" and resolve it. Never merge; the user merges.")
   return parts.join("\n")
 }
 
@@ -103,10 +104,16 @@ export function parsePRGraphql(json: any): PRSnapshot {
     resolved: t?.isResolved === true,
     lastBody: String(t?.comments?.nodes?.at(-1)?.body ?? "").trim(),
   }))
-  const rawChecks: any[] = pr?.statusCheckRollup?.contexts ?? []
+  const rawChecks: any[] = pr?.statusCheckRollup?.contexts?.nodes ?? []
   const checks: CheckSnapshot[] = rawChecks.map((c: any) => ({
     name: String(c?.name ?? c?.context ?? "check"),
     state: normalizeCheckState(c?.conclusion ?? c?.state),
   }))
-  return { threads, checks, state: String(pr?.state ?? "OPEN").toUpperCase() }
+  const page = pr?.statusCheckRollup?.contexts?.pageInfo
+  return {
+    threads,
+    checks,
+    state: String(pr?.state ?? "OPEN").toUpperCase(),
+    checkPage: page ? { hasNextPage: page.hasNextPage === true, endCursor: page.endCursor ?? undefined } : undefined,
+  }
 }

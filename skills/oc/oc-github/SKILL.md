@@ -42,7 +42,7 @@ flag state, and Deploy notes.
 
 The full set lives in `templates/labels.json` (config only): `prd`, `slice`,
 `area:<app>`, `area:db`, `area:infra`, `area:docs`, `risk:security`,
-`status:ready|in-progress|in-review|blocked`, `flag-removal`. Missing labels are
+`status:ready|in-progress|in-review|blocked|cleanup-pending`, `flag-removal`. Missing labels are
 created on first use; `area:<app>` names always come from the target repo's
 `AGENTS.md`. The `_generated` key in `labels.json` is a hint about those
 on-demand `area:<app>` labels, not a label — skip every key starting with `_`

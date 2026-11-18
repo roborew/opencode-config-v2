@@ -124,9 +124,33 @@ export interface SliceRecord {
   branch: string
   directory: string
   sessionID?: string
+  sessionStarting?: string
+  sessionStartingPID?: number
+  coordinatorSessionID?: string
   state: "building" | "in-review" | "ready" | "blocked"
   prURL?: string
+  pendingLabel?: string
+  blockedReason?: string
+  blockedRevision?: string
+  syncPending?: boolean
+  syncClaim?: string
+  syncClaimPID?: number
+  pushPending?: boolean
+  pushCommit?: string
+  cleanupComplete?: boolean
   createdAt: number
+}
+
+/** A live writer owns its claim; a claim left by a dead process is reclaimable. */
+export function processIsAlive(pid: number | undefined): boolean {
+  if (!pid || !Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error: any) {
+    // EPERM means the process exists but belongs to another user.
+    return error?.code === "EPERM"
+  }
 }
 
 /** Reads the oc-slice.json a worktree carries in its git directory. */

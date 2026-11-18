@@ -10,5 +10,6 @@
   "status:in-progress": "A slice session is building it.",
   "status:in-review": "PR open; waiting on review and the PR monitor.",
   "status:blocked": "Cannot proceed; see the issue body for the reason.",
+  "status:cleanup-pending": "Merged slice; central build still owes issue closure, parent PRD check and label cleanup.",
   "flag-removal": "Removes a feature flag introduced by an earlier slice."
 }

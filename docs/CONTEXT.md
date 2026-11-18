@@ -5,7 +5,7 @@
 - **Slice:** a thin vertical change, independently reviewable and mergeable to `main`. It's a sub-issue of a PRD (label `slice`) or stands alone for a targeted change. Don't call it a ticket, stage, task or sub-PR.
 - **Slice worktree:** a git worktree off `origin/main` for exactly one slice, on branch `slice/<N>-<slug>`, with its own OpenCode session.
 - **Slice record:** what `oc-worktree` stores at `slice_start`: issue, labels, PRD, branch, directory, session.
-- **Main checkout:** the repo's primary working copy. `/build` coordinates from here and never implements.
+- **Main checkout:** the repo's primary working copy. The user stays in one central session here; `/build` coordinates and never implements. Workers send READY/BLOCKED/MERGED updates back to it, and it routes user feedback to the existing worker with `slice_message`.
 - **Project Template:** architecture guidance for one project repo, whether it contains a root-level single app or multiple apps (`templates/project/TEMPLATE.md`). It does not require a monorepo, nested `apps/`, shared packages or a separate API, and it does not set how tests run.
 - **Test contract:** the repo's single `compose.yml` (test-only, never used in production). It runs the whole system and its tests from the repo's own Dockerfiles, fully isolated.
 - **Sandbox:** the per-slice isolated Docker environment where the test contract runs. The backend is **sysbox** (its own Sysbox container on the server) or **docker** (its own Compose project on the Mac).
@@ -15,8 +15,8 @@
 - **Evidence:** a recorded sandbox run `{sha, cmd, passed}` used by `redgreen_check`.
 - **RED / GREEN:** a test-only commit whose evidence fails, followed by a code commit whose evidence passes.
 - **Flag:** a temporary toggle that keeps incomplete behaviour dark on `main`. Each one has a `flag-removal` slice.
-- **Gate:** a check a slice must pass. Local gates: `sandbox_gate` passes, `redgreen_check` is OK, and the persona review is done. Remote gates: CodeRabbit threads are resolved and Actions is green. Human gate: Robin merges.
-- **PR monitor:** the zero-token wait loop after a PR opens. It wakes the slice session when something changes.
+- **Gate:** a check a slice must pass. Local gates: `sandbox_gate` passes, `redgreen_check` is OK, and the persona review is done. Remote gates: all PR review threads are resolved, regardless of which tool created them, and Actions is green. Human gate: Robin merges.
+- **PR monitor:** the zero-token wait loop after a PR opens. It wakes the slice session when something changes, notifies the central session on READY/BLOCKED/MERGED, and stays armed after READY until the PR merges or closes.
 - **Round:** one wake → fix → push cycle of the PR monitor. At most 5.
 - **BLOCKED:** a slice that stopped and needs a human or a spec change. The reason is posted on its issue.
 - **Persona:** an addy reviewer subagent (`code-reviewer`, `security-auditor`). Personas never call other personas.

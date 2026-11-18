@@ -20,7 +20,7 @@ When the user says "I merged #N" in this central build session, run that same re
 If `#N` is given and you are in that slice's worktree (oc-skills has already added the base and area skills):
 
 1. sandbox_up.
-2. Work in vertical order: migration (expand) → API → regenerate the client through the contract's generator service (commit it; never hand-edit it) → web → E2E. For each acceptance criterion: write the failing test, commit it test-only, run sandbox_test with the focused test (the app's test service plus args; it must fail = RED); write the minimum code, commit, re-run it (it must pass = GREEN).
+2. Work in vertical order through only the layers that exist and the slice touches: for example migration (expand) → API → regenerate the client through the declared generator service (commit it; never hand-edit it) → web → E2E. Skip absent layers and do not invent a separate backend or generated client for a self-contained full-stack app. For each acceptance criterion: write the failing test, commit it test-only, run sandbox_test with the focused test (the app's test service plus args; it must fail = RED); write the minimum code, commit, re-run it (it must pass = GREEN).
 3. Run sandbox_gate. On failure follow @debugging-and-error-recovery. After 3 failed attempts on the same criterion, call slice_block with the actionable reason and go idle. Do not invent requirements.
 4. Continue with /review, then /ship. Opening the PR and calling prmon_watch marks the slice in-review; READY and BLOCKED are reported to the central build session automatically.
 5. When slice_message wakes you with user feedback, follow its instructions in this same worktree, branch, session and PR, then restart prmon_watch after pushing the fix.

@@ -35,7 +35,7 @@ no flow reference material.
 
 Push the slice branch, then `gh pr create --body-file <filled pr.md>` with the
 branch's changes: `Closes #N`, `Part of #PRD`, what changed, contract change and
-regenerated client, red/green evidence, `sandbox_gate` result, review summary,
+any regenerated artifacts, red/green evidence, `sandbox_gate` result, review summary,
 flag state, and Deploy notes.
 
 ## Labels

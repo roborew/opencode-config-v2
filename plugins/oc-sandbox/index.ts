@@ -257,7 +257,7 @@ export default Plugin.define({
 
       tool(
         "gate",
-        "The full pre-PR run: every test service in the contract, the client drift check and the production-image smoke check, all isolated.",
+        "The full pre-PR run: every test service in the contract, any declared generation drift check and the production-image smoke check, all isolated.",
         { slice: { type: "string" } },
         async (_input, context) => {
           const wt = await sessionDir(context.sessionID)
@@ -299,9 +299,9 @@ export default Plugin.define({
                 60_000,
               )
               steps.push({
-                step: "client drift check",
+                step: "generation drift check",
                 passed: drift.exitCode === 0,
-                detail: drift.exitCode === 0 ? undefined : "regenerated client differs from the committed one — regenerate and commit it",
+                detail: drift.exitCode === 0 ? undefined : "generated artifacts differ from the committed ones — regenerate and commit them",
               })
             }
           }

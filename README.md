@@ -17,14 +17,16 @@ holds no app code.
 
 ## App repos
 
-App repos use the monorepo **layout and architecture** from
-[`templates/project/TEMPLATE.md`](templates/project/TEMPLATE.md) — the example
-(taken from Rekalled): zones (`apps/`, `packages/`, `infra/`, `scripts/`,
-`docs/`, `.github/`), a Dockerfile and image per app, a contract-first API with
-a generated client, a layered backend, a feature-based frontend, and docs next
-to the code. The template covers layout and architecture only. How the flow
-tests is defined by the test contract in `docs/plan/blueprint.md` (§7.2, §9.2),
-not by the template.
+Each project lives in one app repo, but that repo does not have to be a
+monorepo. [`templates/project/TEMPLATE.md`](templates/project/TEMPLATE.md)
+guides both root-level single-app and multi-app architectures: a full-stack
+Next.js or TanStack Start app can use its framework-native layout, while a
+React + FastAPI system might use `apps/` and share generated code through
+`packages/`. API contracts, generated clients, per-component images, and
+build tools apply only when the real architecture needs them. The common
+defaults are clear ownership, docs next to the code, and idiomatic stack
+choices. How the flow tests is defined separately by the test contract in
+`docs/plan/blueprint.md` (§7.2, §9.2).
 
 ## Install
 
@@ -90,9 +92,7 @@ flowchart TD
 The detailed daily loop and BLOCKED handling are in
 [`docs/runbook.md`](docs/runbook.md).
 
-## App repos
-
-### Update addy's skills
+## Update addy's skills
 
 Ask for the `addy-sync` skill: it fetches upstream at a target ref, shows the diff
 of `skills/addy/` and `references/` against the pinned commit in

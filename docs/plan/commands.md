@@ -33,8 +33,8 @@ agent: plan
 PRD: $ARGUMENTS (issue number or spec path)
 
 1. Read the spec and the relevant code (through explore). Plan in read-only mode.
-2. Draft vertical slices: each one goes through every layer it needs (migration → API → generated client → web → E2E, all in one slice and never split into backend and frontend PRs), is mergeable to main on its own, and fits one fresh context. Record dependencies. Schema changes are expand/contract. Incomplete behaviour hides behind a flag, and each flag gets a `flag-removal` slice.
-3. For each slice: title, what to build, acceptance criteria, blocked-by, an `area:<app>` label for each app touched (+ `area:db`/`area:infra`), contract change yes/no, `risk:security` when it applies, and the flag plan.
+2. Draft vertical slices: each one goes through every applicable layer in one slice (for example migration → API → generated client → web → E2E, never split into tier-only PRs), skipping layers and generated artifacts the repo does not have. A full-stack app or repo with no separate API needs no imaginary backend or client-generation steps. Each slice is mergeable to main on its own and fits one fresh context. Record dependencies. Schema changes are expand/contract. Incomplete behaviour hides behind a flag, and each flag gets a `flag-removal` slice.
+3. For each slice: title, what to build, acceptance criteria, blocked-by, an `area:<app>` label for each logical component from the repo's `AGENTS.md` touched (+ `area:db`/`area:infra`), contract change yes/no, `risk:security` when it applies, and the flag plan.
 4. Show me the numbered breakdown and wait for an unambiguous approval.
 5. After approval: create the slice issues in dependency order as sub-issues of the PRD, with blocking relationships and `status:ready`. If a decision was made, record it with @documentation-and-adrs.
 ```
@@ -64,7 +64,7 @@ When the user says "I merged #N" in this central build session, run that same re
 If `#N` is given and you are in that slice's worktree (oc-skills has already added the base and area skills):
 
 1. sandbox_up.
-2. Work in vertical order: migration (expand) → API → regenerate the client through the contract's generator service (commit it; never hand-edit it) → web → E2E. For each acceptance criterion: write the failing test, commit it test-only, run sandbox_test with the focused test (the app's test service plus args; it must fail = RED); write the minimum code, commit, re-run it (it must pass = GREEN).
+2. Work in vertical order through only the layers that exist and the slice touches: for example migration (expand) → API → regenerate the client through the declared generator service (commit it; never hand-edit it) → web → E2E. Skip absent layers and do not invent a separate backend or generated client for a self-contained full-stack app. For each acceptance criterion: write the failing test, commit it test-only, run sandbox_test with the focused test (the app's test service plus args; it must fail = RED); write the minimum code, commit, re-run it (it must pass = GREEN).
 3. Run sandbox_gate. On failure follow @debugging-and-error-recovery. After 3 failed attempts on the same criterion, call slice_block with the actionable reason and go idle. Do not invent requirements.
 4. Continue with /review, then /ship. Opening the PR and calling prmon_watch marks the slice in-review; READY and BLOCKED are reported to the central build session automatically.
 5. When slice_message wakes you with user feedback, follow its instructions in this same worktree, branch, session and PR, then restart prmon_watch after pushing the fix.
@@ -95,5 +95,5 @@ agent: build
 
 @git-workflow-and-versioning @oc-github @oc-pr-monitor
 
-Push `slice/<N>-<slug>`. Open a PR to main with `gh pr create --body-file`, using oc-github's `pr.md` template (from the config, not the repo): Closes #N, Part of #PRD, what changed, contract change and regenerated client, the redgreen_check and sandbox_gate output, the review summary, the flag state. Call prmon_watch, then go idle. When the monitor wakes you: fix each listed item (commit, push) or reply "Won't fix, because…" and resolve it. Never merge. Robin merges.
+Push `slice/<N>-<slug>`. Open a PR to main with `gh pr create --body-file`, using oc-github's `pr.md` template (from the config, not the repo): Closes #N, Part of #PRD, what changed, contract change and any regenerated artifacts, the redgreen_check and sandbox_gate output, the review summary, the flag state. Call prmon_watch, then go idle. When the monitor wakes you: fix each listed item (commit, push) or reply "Won't fix, because…" and resolve it. Never merge. Robin merges.
 ```

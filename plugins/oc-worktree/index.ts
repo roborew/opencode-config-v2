@@ -10,6 +10,7 @@ import {
   envFilesToCopy,
   listWorktrees,
   parseBlockers,
+  processIsAlive,
   removalGuard,
   slugify,
 } from "./lib"
@@ -93,8 +94,15 @@ export default Plugin.define({
       updateSlice<SliceRecord>(canonical, issue, (current) => {
         if (!current) return undefined
         if (current.state !== "building" && current.state !== "in-review") return current
-        if (current.syncClaim) return current
+        if (current.syncClaim) {
+          // A claim owned by a live process is honoured; one left by a dead
+          // process (server restart mid-fetch) is reclaimed.
+          if (current.syncClaimPID === process.pid || processIsAlive(current.syncClaimPID)) return current
+          current.syncClaim = undefined
+          current.syncClaimPID = undefined
+        }
         current.syncClaim = token
+        current.syncClaimPID = process.pid
         current.syncPending = true
         claimed = true
         return current
@@ -106,6 +114,7 @@ export default Plugin.define({
       updateSlice<SliceRecord>(canonical, issue, (current) => {
         if (!current || current.syncClaim !== token) return current
         current.syncClaim = undefined
+        current.syncClaimPID = undefined
         current.syncPending = pending
         return current
       })
@@ -237,8 +246,16 @@ export default Plugin.define({
             const token = randomUUID()
             const claimed = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
               if (!current) return undefined
-              if (current.sessionID || current.sessionStarting) return current
+              if (current.sessionID) return current
+              if (current.sessionStarting) {
+                // Recover a start claim whose owner process died before it could
+                // attach a worker; a live owner still wins.
+                if (current.sessionStartingPID === process.pid || processIsAlive(current.sessionStartingPID)) return current
+                current.sessionStarting = undefined
+                current.sessionStartingPID = undefined
+              }
               current.sessionStarting = token
+              current.sessionStartingPID = process.pid
               return current
             })
             if (!claimed) return { content: `BLOCKED: slice #${input.issue} record disappeared during session recovery` }
@@ -260,21 +277,38 @@ export default Plugin.define({
                 if (!current) return undefined
                 current.sessionID = sessionID
                 current.sessionStarting = undefined
+                current.sessionStartingPID = undefined
                 return current
               })
               if (saved && existsSync(saved.directory)) writeSliceRecordFile(saved.directory, saved)
-              ensureLabel(canonical, "status:in-progress")
-              const labelUpdate = gh(canonical, `issue edit ${input.issue} --add-label status:in-progress --remove-label status:ready --remove-label status:in-review --remove-label status:blocked`)
+              // Attaching a worker is not the same as resuming work: derive the
+              // label from the stored state so a BLOCKED slice stays BLOCKED.
+              const label = claimed.state === "ready"
+                ? "ready"
+                : claimed.state === "in-review"
+                  ? "in-review"
+                  : claimed.state === "building"
+                    ? "in-progress"
+                    : "blocked"
+              ensureLabel(canonical, `status:${label}`)
+              const removals = ["in-progress", "in-review", "ready", "blocked"]
+                .filter((name) => name !== label)
+                .map((name) => ` --remove-label status:${name}`)
+                .join("")
+              const labelUpdate = gh(canonical, `issue edit ${input.issue} --add-label status:${label}${removals}`)
               if (labelUpdate.code !== 0) {
                 updateSlice<SliceRecord>(canonical, input.issue, (current) => {
-                  if (current) current.pendingLabel = "in-progress"
+                  if (current) current.pendingLabel = label
                   return current
                 })
               }
               return { content: `recovered worker session ${sessionID} for existing slice #${input.issue} in ${claimed.directory}` }
             } catch (error: any) {
               updateSlice<SliceRecord>(canonical, input.issue, (current) => {
-                if (current?.sessionStarting === token) current.sessionStarting = undefined
+                if (current?.sessionStarting === token) {
+                  current.sessionStarting = undefined
+                  current.sessionStartingPID = undefined
+                }
                 return current
               })
               return { content: `BLOCKED: slice #${input.issue} exists without a worker session and the recovery session could not start: ${error?.message ?? error}` }
@@ -302,11 +336,39 @@ export default Plugin.define({
           const slug = slugify(info.title)
           const branch = `slice/${input.issue}-${slug}`
           const name = `slice-${input.issue}-${slug}`
+          const prd = Number(info.body.match(/part of[^#\n]*#(\d+)/i)?.[1] ?? 0) || undefined
+          const startupToken = randomUUID()
+          const startupRecord: SliceRecord = {
+            issue: input.issue,
+            title: info.title,
+            labels: info.labels,
+            prd,
+            branch,
+            directory: "",
+            coordinatorSessionID: context?.sessionID ?? undefined,
+            state: "building",
+            sessionStarting: startupToken,
+            sessionStartingPID: process.pid,
+            createdAt: Date.now(),
+          }
+          // Claim startup before creating a worktree so a concurrent slice_start
+          // cannot publish a second record and start a second worker.
+          let claimedStart = false
+          updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+            if (current) return current
+            claimedStart = true
+            return startupRecord
+          })
+          if (!claimedStart) {
+            return { content: `BLOCKED: slice #${input.issue} was started by another call; use slice_status to inspect it` }
+          }
+
           let directory: string
           try {
             const created: any = await ctx.worktree.create({ projectID, name, branch })
             directory = created.directory
           } catch (error: any) {
+            removeSlice(canonical, input.issue)
             const cls = classifyWorktreeError(error)
             return { content: `BLOCKED: worktree creation failed — ${error?.message ?? error} (${cls.hint})` }
           }
@@ -320,20 +382,17 @@ export default Plugin.define({
             } catch { }
           }
 
-          const prd = Number(info.body.match(/part of[^#\n]*#(\d+)/i)?.[1] ?? 0) || undefined
-          const record: SliceRecord = {
-            issue: input.issue,
-            title: info.title,
-            labels: info.labels,
-            prd,
-            branch,
-            directory,
-            coordinatorSessionID: context?.sessionID ?? undefined,
-            state: "building",
-            createdAt: Date.now(),
+          const record: SliceRecord = startupRecord
+          record.directory = directory
+          const published = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+            if (!current) return undefined
+            current.directory = directory
+            return current
+          })
+          if (!published) {
+            return { content: `BLOCKED: slice #${input.issue} record disappeared after worktree creation` }
           }
           writeSliceRecordFile(directory, record)
-          updateSlice<SliceRecord>(canonical, input.issue, (current) => current ?? record)
 
           let sessionID: string | undefined
           try {
@@ -344,14 +403,26 @@ export default Plugin.define({
             sessionID = session.id ?? session.sessionID
             if (!sessionID) throw new Error("session create returned no session ID")
             await ctx.session.command({ sessionID, name: "build", text: `#${input.issue}` })
-            record.sessionID = sessionID
-            updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+            const saved = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
               if (!current) return undefined
               current.sessionID = sessionID
+              current.sessionStarting = undefined
+              current.sessionStartingPID = undefined
               return current
             })
-            writeSliceRecordFile(directory, record)
+            record.sessionID = sessionID
+            record.sessionStarting = undefined
+            record.sessionStartingPID = undefined
+            if (saved && existsSync(saved.directory)) writeSliceRecordFile(saved.directory, saved)
           } catch (error: any) {
+            updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+              if (!current) return undefined
+              if (current.sessionStarting === startupToken) {
+                current.sessionStarting = undefined
+                current.sessionStartingPID = undefined
+              }
+              return current
+            })
             return {
               content: `worktree ${directory} created on ${branch}, but the session could not be started: ${error?.message ?? error}. Retry slice_start for #${input.issue}; it will attach a worker session to the existing record.`,
             }
@@ -397,7 +468,7 @@ export default Plugin.define({
         }
         if (slices.length === 0) return { content: "no active slices" }
         const lines = slices.map(
-          (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}${s.blockedReason ? ` — reason: ${s.blockedReason}` : ""}${s.pendingLabel ? ` — label retry pending: ${s.pendingLabel}` : ""}${s.syncPending ? " — sync pending" : ""}`,
+          (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}${s.blockedReason ? ` — reason: ${s.blockedReason}` : ""}${s.pendingLabel ? ` — label retry pending: ${s.pendingLabel}` : ""}${s.syncPending ? " — sync pending" : ""}${s.pushPending ? " — push pending" : ""}`,
         )
         return { content: `slice_status:\n${lines.join("\n")}` }
       })
@@ -520,7 +591,7 @@ export default Plugin.define({
           if (!input.reason.trim()) return { content: "BLOCKED: a reason is required" }
 
           const reason = input.reason.trim()
-          if (!await setSliceState(record, "blocked", false, { blockedReason: reason, blockedRevision: randomUUID(), syncClaim: undefined })) {
+          if (!await setSliceState(record, "blocked", false, { blockedReason: reason, blockedRevision: randomUUID(), syncClaim: undefined, syncClaimPID: undefined })) {
             return { content: `BLOCKED: slice #${input.issue} no longer exists; blocker was not recorded and no notification was sent` }
           }
           const comment = gh(canonical, `issue comment ${input.issue} --body ${shellQuote(`BLOCKED: ${reason}`)}`)
@@ -567,14 +638,37 @@ export default Plugin.define({
                 results.push(`  #${s.issue}: sync pending — a merge is already in progress; left untouched`)
                 continue
               }
+              const before = gitIn(s.directory, "rev-parse HEAD").out.trim()
               const merge = gitIn(s.directory, "merge origin/main --no-edit")
               if (merge.code !== 0) {
                 gitIn(s.directory, "merge --abort")
-                await setSliceState(s, "blocked", false, { syncPending: false, syncClaim: undefined })
+                await setSliceState(s, "blocked", false, { syncPending: false, syncClaim: undefined, syncClaimPID: undefined })
                 results.push(`  #${s.issue}: BLOCKED — merge conflict with origin/main (never forced; resolve manually or re-slice)`)
               } else {
+                const after = gitIn(s.directory, "rev-parse HEAD").out.trim()
+                const changed = Boolean(before && after && before !== after)
                 releaseSync(s.issue, token, false)
-                results.push(`  #${s.issue}: merged origin/main`)
+                if (s.state === "in-review" && changed && s.sessionID) {
+                  // The PR still points at the previous head; defer READY until the
+                  // worker verifies and pushes the local merge commit.
+                  updateSlice<SliceRecord>(canonical, s.issue, (current) => {
+                    if (!current) return undefined
+                    current.pushPending = true
+                    return current
+                  })
+                  try {
+                    await ctx.session.prompt({
+                      sessionID: s.sessionID,
+                      text: `origin/main was synced into your in-review branch for slice #${s.issue}, creating local commits that are not yet on the PR. Verify the merge, push the branch, then restart prmon_watch in this same worktree. READY stays deferred until the push lands.`,
+                      delivery: "queue",
+                    })
+                    results.push(`  #${s.issue}: merged origin/main and woke the worker to push (READY deferred)`)
+                  } catch (error: any) {
+                    results.push(`  #${s.issue}: merged origin/main; the worker wake failed: ${error?.message ?? error} (READY stays deferred)`)
+                  }
+                } else {
+                  results.push(`  #${s.issue}: merged origin/main`)
+                }
               }
             } catch (error: any) {
               releaseSync(s.issue, token, true)

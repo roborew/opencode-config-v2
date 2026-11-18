@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { execFileSync, execSync } from "node:child_process"
+import { execFile, execSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { diffSnapshot, isReady, parsePRGraphql, wakeText, type PRSnapshot, type WakeSummary } from "./lib"
 import type { SliceRecord } from "../oc-worktree/lib"
@@ -26,6 +26,14 @@ const sh = (cmd: string, cwd: string, timeoutMs = 60_000): { code: number; out: 
     return { code: e.status ?? 1, out: (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "") }
   }
 }
+
+const execFileAsync = (file: string, args: string[], options: any): Promise<{ stdout: Buffer | string; stderr: Buffer | string }> =>
+  new Promise((resolve, reject) => {
+    execFile(file, args, options, (error, stdout, stderr) => {
+      if (error) reject(Object.assign(error, { stdout, stderr }))
+      else resolve({ stdout, stderr })
+    })
+  })
 
 interface WatchRecord {
   watchID?: string
@@ -85,18 +93,22 @@ export default Plugin.define({
 
     console.log(`[oc-pr-monitor] active (interval ${intervalMs}ms, maxRounds ${maxRounds})`)
 
-    const fetchPage = (watch: WatchRecord, cursor?: string): PRSnapshot | undefined => {
+    const fetchPage = async (watch: WatchRecord, cursor?: string): Promise<PRSnapshot | undefined> => {
+      const args = [
+        "api", "graphql",
+        "-f", `query=${PR_QUERY}`,
+        "-F", `owner=${watch.owner}`,
+        "-F", `name=${watch.name}`,
+        "-F", `number=${watch.pr}`,
+      ]
+      if (cursor) args.push("-F", `cursor=${cursor}`)
       try {
-        const args = [
-          "api", "graphql",
-          "-f", `query=${PR_QUERY}`,
-          "-F", `owner=${watch.owner}`,
-          "-F", `name=${watch.name}`,
-          "-F", `number=${watch.pr}`,
-        ]
-        if (cursor) args.push("-F", `cursor=${cursor}`)
-        const out = execFileSync("gh", args, { cwd: watch.repoDir, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000 }).toString()
-        return parsePRGraphql(JSON.parse(out))
+        const { stdout } = await execFileAsync("gh", args, {
+          cwd: watch.repoDir,
+          timeout: 60_000,
+          maxBuffer: 10 * 1024 * 1024,
+        })
+        return parsePRGraphql(JSON.parse(stdout.toString()))
       } catch (e: any) {
         const out = (e?.stdout?.toString() ?? "") + (e?.stderr?.toString() ?? "")
         console.error(`[oc-pr-monitor] graphql failed for PR #${watch.pr}: ${out.trim().slice(0, 200)}`)
@@ -104,27 +116,29 @@ export default Plugin.define({
       }
     }
 
-    const fetchSnapshot = (watch: WatchRecord): PRSnapshot | undefined => {
-      const first = fetchPage(watch)
+    const fetchSnapshot = async (watch: WatchRecord): Promise<{ snapshot: PRSnapshot; complete: boolean } | undefined> => {
+      const first = await fetchPage(watch)
       if (!first) return undefined
       const checks = [...first.checks]
       let page = first.checkPage
-      let incomplete = false
-      for (let count = 0; page?.hasNextPage && count < 10; count++) {
-        if (!page.endCursor) {
-          incomplete = true
+      let complete = true
+      let pages = 0
+      while (page?.hasNextPage) {
+        if (!page.endCursor || pages >= 100) {
+          complete = false
           break
         }
-        const next = fetchPage(watch, page.endCursor)
+        const next = await fetchPage(watch, page.endCursor)
         if (!next) {
-          incomplete = true
+          complete = false
           break
         }
         checks.push(...next.checks)
         page = next.checkPage
+        pages++
       }
-      if (incomplete) return undefined
-      return { ...first, checks }
+      if (page?.hasNextPage) complete = false
+      return { snapshot: { ...first, checks }, complete }
     }
 
     const gh = (args: string, cwd: string) => sh(`gh ${args}`, cwd)
@@ -140,6 +154,7 @@ export default Plugin.define({
           if (!current) return undefined
           if (current.state === "blocked" && state !== "blocked" && !resume) return current
           if (current.syncClaim && state === "ready") return current
+          if (current.pushPending && state === "ready") return current
           current.state = state
           current.prURL = watch.prURL ?? current.prURL
           current.pendingLabel = state === "building" ? "in-progress" : state
@@ -257,8 +272,10 @@ export default Plugin.define({
         return
       }
       await retryPendingLabel(watch)
-      const snapshot = fetchSnapshot(watch)
-      if (!snapshot) return
+      const fetched = await fetchSnapshot(watch)
+      if (!isCurrent(watch)) return
+      if (!fetched) return
+      const snapshot = fetched.snapshot
       if (snapshot.state === "MERGED") {
         console.log(`[oc-pr-monitor] PR #${watch.pr} merged — stopping the watch`)
         const delivery = await notifyCoordinator(
@@ -273,12 +290,16 @@ export default Plugin.define({
       if (snapshot.state === "CLOSED") {
         if (!await setSliceState(watch, "blocked") || !isCurrent(watch)) return
         watch.retryTerminalNotification = "closed"
+        await save(watch)
         const delivery = await notifyCoordinator(watch, `PR #${watch.pr} for slice #${watch.slice} was CLOSED without merging. The user needs to decide whether to reopen it or close the slice.`)
         if (!isCurrent(watch)) return
         if (delivery === "delivered") await stop(watch)
         else await save(watch)
         return
       }
+
+      // Only an open PR needs the full check list; terminal states were handled above.
+      if (!fetched.complete) return
 
       if (durable.state === "blocked") {
         if (watch.retryTerminalNotification) {
@@ -303,22 +324,30 @@ export default Plugin.define({
       }
 
       const wasReady = durable.state === "ready"
-      const diff = watch.pendingWake ?? diffSnapshot(watch.lastSnapshot, snapshot)
+      const diff = diffSnapshot(watch.lastSnapshot, snapshot)
+      const retrying = Boolean(watch.pendingWake)
 
       if (isReady(snapshot)) {
-        watch.pendingWake = undefined
-        watch.lastSnapshot = snapshot
         if (durable.state !== "ready") {
           console.log(`[oc-pr-monitor] PR #${watch.pr} is READY — status:ready`)
           watch.readyWorkerNotified = false
           watch.readyCommentPosted = false
           watch.readyNotified = false
           if (!await setSliceState(watch, "ready")) {
-            await stop(watch)
+            const current = readSlice<SliceRecord>(canonical, watch.slice)
+            if (!current || current.state === "blocked") {
+              await stop(watch)
+              return
+            }
+            // Deferred (for example a sync claim or a pending push); keep the
+            // watch alive and retry the transition on a later poll.
+            await save(watch)
             return
           }
           if (!isCurrent(watch)) return
         }
+        watch.pendingWake = undefined
+        watch.lastSnapshot = snapshot
         if (!watch.readyWorkerNotified) {
           try {
             await ctx.session.prompt({
@@ -381,7 +410,7 @@ export default Plugin.define({
         return
       }
 
-      if (!watch.pendingWake) {
+      if (!retrying) {
         watch.round += 1
       }
       if (watch.round > maxRounds) {
@@ -392,6 +421,9 @@ export default Plugin.define({
         )
         if (!await setSliceState(watch, "blocked") || !isCurrent(watch)) return
         watch.retryTerminalNotification = "blocked"
+        // Persist the notification intent before awaiting the worker handover so a
+        // restart cannot lose the coordinator notice.
+        await save(watch)
         await ctx.session
           .prompt({
             sessionID: watch.sessionID,
@@ -401,7 +433,7 @@ export default Plugin.define({
           .catch(() => { })
         const delivery = await notifyCoordinator(watch, `Slice #${watch.slice} / PR #${watch.pr} is BLOCKED after ${maxRounds} review rounds. See the slice issue for the summary${watch.prURL ? ` and PR: ${watch.prURL}` : ""}.`)
         if (!isCurrent(watch)) return
-        if (delivery !== "failed") await stop(watch)
+        if (delivery === "delivered") await stop(watch)
         else await save(watch)
         return
       }
@@ -507,6 +539,10 @@ export default Plugin.define({
           const previous = liveWatches.get(input.slice)
           try {
             await save(watch, true)
+            updateSlice<SliceRecord>(canonical, input.slice, (current) => {
+              if (current) current.pushPending = undefined
+              return current
+            })
             if (!await setSliceState(watch, "in-review", true)) throw new Error("slice state update was rejected")
           } catch (e: any) {
             if (previous) await save(previous, true).catch(() => false)

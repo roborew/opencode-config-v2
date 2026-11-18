@@ -1,12 +1,12 @@
-import { mkdtempSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ execSync: vi.fn(), execFileSync: vi.fn() }))
+const mocks = vi.hoisted(() => ({ execSync: vi.fn(), execFile: vi.fn() }))
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>()
-  return { ...actual, execSync: mocks.execSync, execFileSync: mocks.execFileSync }
+  return { ...actual, execSync: mocks.execSync, execFile: mocks.execFile }
 })
 
 import monitorPlugin from "../../plugins/oc-pr-monitor/index"
@@ -14,6 +14,7 @@ import type { SliceRecord } from "../../plugins/oc-worktree/lib"
 import { readSlice, removeSlice, updateSlice, writeSlice } from "../../plugins/shared/slice-store"
 
 const prURL = "https://github.com/example/app/pull/12"
+const tempDirs: string[] = []
 
 function memoryStorage(canonical: string) {
   const values = new Map<string, any>()
@@ -65,7 +66,9 @@ function githubResponse(state = "OPEN", unresolvedBody?: string, conclusion = "S
 }
 
 async function setupMonitor(maxRounds = 5, response: () => any = () => githubResponse()) {
-  mocks.execFileSync.mockImplementation(() => Buffer.from(JSON.stringify(response())))
+  mocks.execFile.mockImplementation((_file: string, _args: string[], _opts: any, callback: any) => {
+    callback(null, Buffer.from(JSON.stringify(response())), Buffer.from(""))
+  })
   const tools = new Map<string, any>()
   const record: SliceRecord = {
     issue: 7,
@@ -79,6 +82,7 @@ async function setupMonitor(maxRounds = 5, response: () => any = () => githubRes
     createdAt: 1,
   }
   const canonical = mkdtempSync(join(tmpdir(), "repo-"))
+  tempDirs.push(canonical)
   writeSlice(canonical, record)
   const storage = memoryStorage(canonical)
   const prompt = vi.fn(async (_input: any) => undefined)
@@ -105,11 +109,12 @@ describe("PR monitor coordinator lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers()
     mocks.execSync.mockReset()
-    mocks.execFileSync.mockReset()
+    mocks.execFile.mockReset()
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
 
   it("keeps watching after READY, resumes for late feedback, and reports MERGED", async () => {
@@ -132,8 +137,8 @@ describe("PR monitor coordinator lifecycle", () => {
       sessionID: "coordinator",
       text: expect.stringContaining("READY"),
     }))
-    const graphqlArgs = mocks.execFileSync.mock.calls[0]![1] as string[]
-    expect(mocks.execFileSync.mock.calls[0]![0]).toBe("gh")
+    const graphqlArgs = mocks.execFile.mock.calls[0]![1] as string[]
+    expect(mocks.execFile.mock.calls[0]![0]).toBe("gh")
     expect(graphqlArgs.some((arg) => arg.includes("query($owner:String!,$name:String!,$number:Int!,$cursor:String)") && arg.includes("contexts(first:100,after:$cursor)") && arg.includes("pageInfo{hasNextPage endCursor}"))).toBe(true)
     expect(graphqlArgs).toContain("owner=example")
 
@@ -469,6 +474,72 @@ describe("PR monitor coordinator lifecycle", () => {
     expect(storage.values.get("watches/7").active).toBe(false)
   })
 
+  it("keeps the watch active when READY is deferred by a pending push", async () => {
+    const { tools, storage, canonical } = await setupMonitor()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
+      return Buffer.from("")
+    })
+
+    await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.pushPending = true
+      return current
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(storage.values.get("slices/7").state).toBe("in-review")
+    expect(storage.values.get("watches/7")).toMatchObject({ active: true, readyNotified: false })
+
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.pushPending = undefined
+      return current
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(storage.values.get("slices/7").state).toBe("ready")
+  })
+
+  it("includes newly arrived feedback when retrying a failed worker wake", async () => {
+    const threadA = { id: "a", isResolved: false, comments: { nodes: [{ body: "Fix A" }] } }
+    const threadB = { id: "b", isResolved: false, comments: { nodes: [{ body: "Fix B" }] } }
+    const responseWith = (threads: any[]) => ({
+      data: {
+        repository: {
+          pullRequest: {
+            state: "OPEN",
+            reviewThreads: { nodes: threads },
+            statusCheckRollup: { contexts: { nodes: [] } },
+          },
+        },
+      },
+    })
+    let response = responseWith([threadA])
+    const { tools, storage, prompt } = await setupMonitor(5, () => response)
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
+      return Buffer.from("")
+    })
+    let fail = true
+    prompt.mockImplementation(async (input: any) => {
+      if (input.sessionID === "worker-7" && fail) throw new Error("worker offline")
+    })
+
+    await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(storage.values.get("watches/7").pendingWake).toMatchObject({ newUnresolvedThreads: [{ id: "a" }] })
+
+    response = responseWith([threadA, threadB])
+    fail = false
+    prompt.mockClear()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    const wake = prompt.mock.calls.find(([input]) => input.sessionID === "worker-7")?.[0]
+    expect(wake.text).toContain("Fix B")
+    expect(storage.values.get("watches/7").pendingWake).toBeUndefined()
+    expect(storage.values.get("watches/7").round).toBe(1)
+  })
+
   it("stops cleanly when slice_finish removes the record before the merge poll", async () => {
     const { tools, storage } = await setupMonitor()
     mocks.execSync.mockImplementation((command: string) => {
@@ -481,6 +552,6 @@ describe("PR monitor coordinator lifecycle", () => {
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(storage.values.get("watches/7").active).toBe(false)
-    expect(mocks.execFileSync).not.toHaveBeenCalled()
+    expect(mocks.execFile).not.toHaveBeenCalled()
   })
 })

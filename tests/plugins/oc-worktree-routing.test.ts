@@ -141,6 +141,21 @@ describe("central build to slice worker routing", () => {
     expect(ctx.session.command).toHaveBeenCalledWith({ sessionID: "recovered-7", name: "build", text: "#7" })
   })
 
+  it("recovers a BLOCKED worker without changing its status label", async () => {
+    const blocked: SliceRecord = { ...record(), sessionID: undefined, state: "blocked", blockedReason: "spec gap" }
+    const { tools, storage } = await setupWorktree(blocked)
+
+    const result = await tools.get("start").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("recovered worker session recovered-7")
+    expect(storage.values.get("slices/7")).toMatchObject({ state: "blocked", sessionID: "recovered-7" })
+    const labelCall = String(
+      mocks.execSync.mock.calls.find(([command]) => String(command).includes("--add-label status:"))?.[0],
+    )
+    expect(labelCall).toContain("--add-label status:blocked")
+    expect(labelCall).not.toContain("--add-label status:in-progress")
+  })
+
   it("fails closed when slice_message cannot read the caller location", async () => {
     const { tools, prompt, ctx } = await setupWorktree(record())
     ctx.session.get.mockRejectedValueOnce(new Error("session lookup failed"))

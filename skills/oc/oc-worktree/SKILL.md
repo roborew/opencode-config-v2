@@ -33,7 +33,8 @@ One slice = one issue = one worktree off `origin/main` on branch
 - `slice_sync()` — after any merge to `main`, and on every `/build` run: merges
   `origin/main` into building and in-review slices, retrying any `syncPending`
   work. READY and BLOCKED slices are excluded. Conflicts come back as BLOCKED
-  and are never forced.
+  and are never forced. When the merge changes an in-review branch, the worker is
+  woken to verify and push it, and READY stays deferred until the push lands.
 - `slice_finish({ issue })` — only after the PR is merged. Refuses dirty or
   unpushed worktrees; removes the worktree and branch behind the device/inode
   guard.

@@ -369,7 +369,7 @@ test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
 
 `pr.md` has: `Closes #N`, `Part of #PRD`, What changed, Contract change and any regenerated artifacts, Red/green evidence, `sandbox_gate` result, Review summary, Flag state, and Deploy notes (any migration is expand/contract safe; any new env value has been added to the secrets manager for staging **and** production; docs are updated).
 
-**`labels.json` (config only):** `oc-github` creates any missing label the first time it needs it (`gh label create --force`, idempotent). `area:<app>` labels come from the `apps:` keys in `AGENTS.md`. This set replaces the older `state:*`, `category:*` and `mode:*` labels and their `labels.yml`. Labels: `prd`, `slice`, `area:<app>` for each logical component, `area:db`, `area:infra`, `area:docs`, `risk:security`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `flag-removal`.
+**`labels.json` (config only):** `oc-github` creates any missing label the first time it needs it (`gh label create --force`, idempotent). `area:<app>` labels come from the `apps:` keys in `AGENTS.md`. This set replaces the older `state:*`, `category:*` and `mode:*` labels and their `labels.yml`. Labels: `prd`, `slice`, `area:<app>` for each logical component, `area:db`, `area:infra`, `area:docs`, `risk:security`, `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `status:cleanup-pending`, `flag-removal`.
 
 **CI:** the PR gate runs the same isolated Compose test run. A final aggregate job (`ci-ok`) is the single required check. Image build and deploy workflows are separate and outside this flow.
 

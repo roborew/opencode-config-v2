@@ -11,17 +11,34 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 import worktreePlugin from "../../plugins/oc-worktree/index"
 import type { SliceRecord } from "../../plugins/oc-worktree/lib"
+import { readSlice, removeSlice, updateSlice, writeSlice } from "../../plugins/shared/slice-store"
 
-function memoryStorage() {
+function memoryStorage(canonical: string) {
   const values = new Map<string, any>()
-  const copy = (value: any) => structuredClone(value)
+  const issue = (key: string) => key.startsWith("slices/") ? Number(key.slice("slices/".length)) : undefined
+  const facade = {
+    get: (key: string) => {
+      const n = issue(key)
+      return n === undefined ? values.get(key) : readSlice(canonical, n)
+    },
+    set: (key: string, value: any) => {
+      const n = issue(key)
+      if (n === undefined) values.set(key, structuredClone(value))
+      else updateSlice(canonical, n, () => structuredClone(value))
+    },
+    delete: (key: string) => {
+      const n = issue(key)
+      if (n === undefined) values.delete(key)
+      else removeSlice(canonical, n)
+    },
+  }
   return {
-    values,
-    get: vi.fn(async (key: string) => copy(values.get(key))),
-    set: vi.fn(async (key: string, value: any) => void values.set(key, copy(value))),
+    values: facade,
+    get: vi.fn(async (key: string) => structuredClone(values.get(key))),
+    set: vi.fn(async (key: string, value: any) => void values.set(key, structuredClone(value))),
     remove: vi.fn(async (key: string) => void values.delete(key)),
     scan: vi.fn(async ({ prefix }: { prefix: string }) => ({
-      entries: [...values.entries()].filter(([key]) => key.startsWith(prefix)).map(([key, value]) => ({ key, value: copy(value) })),
+      entries: [...values.entries()].filter(([key]) => key.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })),
       next: undefined,
     })),
   }
@@ -29,14 +46,15 @@ function memoryStorage() {
 
 async function setupWorktree(record: SliceRecord) {
   const tools = new Map<string, any>()
-  const storage = memoryStorage()
-  storage.values.set(`slices/${record.issue}`, record)
+  const canonical = mkdtempSync(join(tmpdir(), "repo-"))
+  writeSlice(canonical, record)
+  const storage = memoryStorage(canonical)
   const prompt = vi.fn(async (_input: any) => undefined)
   const create = vi.fn(async () => ({ id: "recovered-7" }))
   const command = vi.fn(async () => undefined)
   const ctx = {
     options: { worktreeRoot: "/tmp" },
-    location: { directory: "/repo", project: { id: "project", canonical: "/repo" } },
+    location: { directory: canonical, project: { id: "project", canonical } },
     storage,
     worktree: { transform: async (callback: any) => callback({ add: vi.fn() }) },
     tool: {
@@ -47,7 +65,7 @@ async function setupWorktree(record: SliceRecord) {
     },
     session: {
       get: vi.fn(async ({ sessionID }: { sessionID: string }) => ({
-        location: { directory: sessionID === "coordinator" ? "/repo" : record.directory },
+        location: { directory: sessionID === "coordinator" ? canonical : record.directory },
       })),
       prompt,
       create,
@@ -56,7 +74,7 @@ async function setupWorktree(record: SliceRecord) {
   }
 
   await worktreePlugin.setup(ctx as any)
-  return { tools, storage, prompt, ctx }
+  return { tools, storage, prompt, ctx, canonical }
 }
 
 const record = (): SliceRecord => ({
@@ -183,7 +201,8 @@ describe("central build to slice worker routing", () => {
 
     expect(result.content).toContain("resumed")
     expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "worker-7" }))
-    expect(storage.values.get("slices/7")).toMatchObject({ state: "building", blockedReason: undefined })
+    expect(storage.values.get("slices/7").state).toBe("building")
+    expect(storage.values.get("slices/7").blockedReason).toBeUndefined()
   })
 
   it("persists the PR URL resolved from slice_message", async () => {
@@ -233,10 +252,10 @@ describe("central build to slice worker routing", () => {
 
   it("does not recreate a legacy record removed during coordinator backfill", async () => {
     const legacy = { ...record(), coordinatorSessionID: undefined }
-    const { tools, storage, ctx } = await setupWorktree(legacy)
+    const { tools, storage, ctx, canonical } = await setupWorktree(legacy)
     let release: (() => void) | undefined
     ctx.session.get.mockImplementationOnce(() => new Promise((resolve) => {
-      release = () => resolve({ location: { directory: "/repo" } })
+      release = () => resolve({ location: { directory: canonical } })
     }))
 
     const status = tools.get("status").execute({}, { sessionID: "coordinator" })

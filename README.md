@@ -82,7 +82,8 @@ flowchart TD
 2. **`/build`** — central build starts up to three unblocked slices, each in its
    own worktree and session.
 3. **Workers exhaust the automated loop** — local tests and review, then GitHub
-   Actions and resolvable PR review threads from any tool. You are called only when a PR is READY or BLOCKED.
+   Actions and resolvable PR review threads from any tool. The coordinator reports
+   READY, BLOCKED and MERGED; READY asks you to review and test.
 4. **You review and test.** For a problem, tell central build; it wakes the same
    worker and PR. Otherwise merge in GitHub and tell build which slice merged.
 5. **Build reconciles** — removes merged worktrees, confirms issue closure,

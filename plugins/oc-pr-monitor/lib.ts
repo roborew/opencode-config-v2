@@ -26,6 +26,7 @@ export interface PRSnapshot {
   threads: ThreadSnapshot[]
   checks: CheckSnapshot[]
   state: string // OPEN | MERGED | CLOSED
+  checkPage?: { hasNextPage: boolean; endCursor?: string }
 }
 
 export interface WakeSummary {
@@ -108,5 +109,11 @@ export function parsePRGraphql(json: any): PRSnapshot {
     name: String(c?.name ?? c?.context ?? "check"),
     state: normalizeCheckState(c?.conclusion ?? c?.state),
   }))
-  return { threads, checks, state: String(pr?.state ?? "OPEN").toUpperCase() }
+  const page = pr?.statusCheckRollup?.contexts?.pageInfo
+  return {
+    threads,
+    checks,
+    state: String(pr?.state ?? "OPEN").toUpperCase(),
+    checkPage: page ? { hasNextPage: page.hasNextPage === true, endCursor: page.endCursor ?? undefined } : undefined,
+  }
 }

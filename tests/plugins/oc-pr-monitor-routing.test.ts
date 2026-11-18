@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ execSync: vi.fn(), execFileSync: vi.fn() }))
@@ -8,18 +11,36 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 import monitorPlugin from "../../plugins/oc-pr-monitor/index"
 import type { SliceRecord } from "../../plugins/oc-worktree/lib"
+import { readSlice, removeSlice, updateSlice, writeSlice } from "../../plugins/shared/slice-store"
 
 const prURL = "https://github.com/example/app/pull/12"
 
-function memoryStorage(record: SliceRecord) {
-  const values = new Map<string, any>([[`slices/${record.issue}`, record]])
+function memoryStorage(canonical: string) {
+  const values = new Map<string, any>()
+  const issue = (key: string) => key.startsWith("slices/") ? Number(key.slice("slices/".length)) : undefined
+  const facade = {
+    get: (key: string) => {
+      const n = issue(key)
+      return n === undefined ? values.get(key) : readSlice(canonical, n)
+    },
+    set: (key: string, value: any) => {
+      const n = issue(key)
+      if (n === undefined) values.set(key, structuredClone(value))
+      else updateSlice(canonical, n, () => structuredClone(value))
+    },
+    delete: (key: string) => {
+      const n = issue(key)
+      if (n === undefined) values.delete(key)
+      else removeSlice(canonical, n)
+    },
+  }
   return {
-    values,
-    get: vi.fn(async (key: string) => values.get(key)),
-    set: vi.fn(async (key: string, value: any) => void values.set(key, value)),
+    values: facade,
+    get: vi.fn(async (key: string) => structuredClone(values.get(key))),
+    set: vi.fn(async (key: string, value: any) => void values.set(key, structuredClone(value))),
     remove: vi.fn(async (key: string) => void values.delete(key)),
     scan: vi.fn(async ({ prefix }: { prefix: string }) => ({
-      entries: [...values.entries()].filter(([key]) => key.startsWith(prefix)).map(([key, value]) => ({ key, value })),
+      entries: [...values.entries()].filter(([key]) => key.startsWith(prefix)).map(([key, value]) => ({ key, value: structuredClone(value) })),
       next: undefined,
     })),
   }
@@ -57,11 +78,13 @@ async function setupMonitor(maxRounds = 5, response: () => any = () => githubRes
     state: "building",
     createdAt: 1,
   }
-  const storage = memoryStorage(record)
+  const canonical = mkdtempSync(join(tmpdir(), "repo-"))
+  writeSlice(canonical, record)
+  const storage = memoryStorage(canonical)
   const prompt = vi.fn(async (_input: any) => undefined)
   const ctx = {
     options: { intervalMs: 1000, maxRounds },
-    location: { directory: "/repo", project: { canonical: "/repo" } },
+    location: { directory: canonical, project: { canonical } },
     storage,
     tool: {
       transform: async (callback: any) => callback({
@@ -75,7 +98,7 @@ async function setupMonitor(maxRounds = 5, response: () => any = () => githubRes
     },
   }
   await monitorPlugin.setup(ctx as any)
-  return { tools, storage, prompt }
+  return { tools, storage, prompt, canonical }
 }
 
 describe("PR monitor coordinator lifecycle", () => {
@@ -111,7 +134,7 @@ describe("PR monitor coordinator lifecycle", () => {
     }))
     const graphqlArgs = mocks.execFileSync.mock.calls[0]![1] as string[]
     expect(mocks.execFileSync.mock.calls[0]![0]).toBe("gh")
-    expect(graphqlArgs.some((arg) => arg.includes("query($owner:String!,$name:String!,$number:Int!)") && arg.includes("contexts(first:100){nodes{"))).toBe(true)
+    expect(graphqlArgs.some((arg) => arg.includes("query($owner:String!,$name:String!,$number:Int!,$cursor:String)") && arg.includes("contexts(first:100,after:$cursor)") && arg.includes("pageInfo{hasNextPage endCursor}"))).toBe(true)
     expect(graphqlArgs).toContain("owner=example")
 
     // An explicit re-watch after user feedback must replace the live timer's
@@ -270,15 +293,17 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("honours a durable worker BLOCKED state and stops without overwriting it", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
+    const { tools, storage, prompt, canonical } = await setupMonitor()
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
-      if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(githubResponse()))
       return Buffer.from("")
     })
 
     await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
-    storage.values.get("slices/7").state = "blocked"
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.state = "blocked"
+      return current
+    })
     prompt.mockClear()
     await vi.advanceTimersByTimeAsync(1000)
 
@@ -366,7 +391,7 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("pauses READY transitions while slice_message owns the building state", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
+    const { tools, storage, prompt, canonical } = await setupMonitor()
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
       if (command.includes("gh api graphql")) return Buffer.from(JSON.stringify(githubResponse()))
@@ -374,7 +399,10 @@ describe("PR monitor coordinator lifecycle", () => {
     })
 
     await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
-    storage.values.get("slices/7").state = "building"
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.state = "building"
+      return current
+    })
     prompt.mockClear()
     await vi.advanceTimersByTimeAsync(1000)
 
@@ -384,7 +412,7 @@ describe("PR monitor coordinator lifecycle", () => {
   })
 
   it("does not acknowledge READY if BLOCKED arrives while its prompt is pending", async () => {
-    const { tools, storage, prompt } = await setupMonitor()
+    const { tools, storage, prompt, canonical } = await setupMonitor()
     let releaseCoordinator: (() => void) | undefined
     const coordinatorPending = new Promise<void>((resolve) => { releaseCoordinator = resolve })
     mocks.execSync.mockImplementation((command: string) => {
@@ -398,7 +426,10 @@ describe("PR monitor coordinator lifecycle", () => {
 
     await tools.get("watch").execute({ slice: 7, pr: 12 }, { sessionID: "worker-7" })
     await vi.advanceTimersByTimeAsync(1000)
-    storage.values.get("slices/7").state = "blocked"
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.state = "blocked"
+      return current
+    })
     releaseCoordinator!()
     await vi.advanceTimersByTimeAsync(0)
 
@@ -408,8 +439,11 @@ describe("PR monitor coordinator lifecycle", () => {
 
   it("keeps READY pending until the coordinator is backfilled", async () => {
     let response = githubResponse()
-    const { tools, storage, prompt } = await setupMonitor(5, () => response)
-    storage.values.get("slices/7").coordinatorSessionID = undefined
+    const { tools, storage, prompt, canonical } = await setupMonitor(5, () => response)
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.coordinatorSessionID = undefined
+      return current
+    })
     mocks.execSync.mockImplementation((command: string) => {
       if (command.includes("gh pr view 12")) return Buffer.from(JSON.stringify({ url: prURL, headRefName: "slice/7-empty-states" }))
       return Buffer.from("")
@@ -421,7 +455,10 @@ describe("PR monitor coordinator lifecycle", () => {
     expect(prompt.mock.calls.filter(([input]) => input.sessionID === "worker-7")).toHaveLength(1)
     expect(mocks.execSync.mock.calls.filter(([command]) => command.includes("pr comment 12"))).toHaveLength(1)
 
-    storage.values.get("slices/7").coordinatorSessionID = "coordinator"
+    updateSlice<SliceRecord>(canonical, 7, (current) => {
+      if (current) current.coordinatorSessionID = "coordinator"
+      return current
+    })
     await vi.advanceTimersByTimeAsync(1000)
     expect(storage.values.get("watches/7")).toMatchObject({ active: true, readyNotified: true })
     expect(prompt.mock.calls.filter(([input]) => input.sessionID === "worker-7")).toHaveLength(1)

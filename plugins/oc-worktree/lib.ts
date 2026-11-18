@@ -124,12 +124,16 @@ export interface SliceRecord {
   branch: string
   directory: string
   sessionID?: string
+  sessionStarting?: string
   coordinatorSessionID?: string
   state: "building" | "in-review" | "ready" | "blocked"
   prURL?: string
   pendingLabel?: string
   blockedReason?: string
+  blockedRevision?: string
   syncPending?: boolean
+  syncClaim?: string
+  cleanupComplete?: boolean
   createdAt: number
 }
 

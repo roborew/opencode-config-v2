@@ -53,7 +53,9 @@ the central build session. Read the reason; it is usually a spec gap — take it
 back to `/plan`. After the blocker is resolved or replanned, call
 `slice_resume({ issue })` from the central session; this wakes the existing
 worker in its existing worktree and branch. There is no need to enter the slice
-worktree or run `/build #N` there yourself.
+worktree or run `/build #N` there yourself. If the PR was CLOSED without
+merging, decide whether to reopen it or close the slice; resume becomes
+available after the PR is OPEN and the blocker is resolved.
 
 ## Sandboxes
 

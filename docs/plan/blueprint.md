@@ -38,6 +38,8 @@ opencode-config-v2/
 │   │   ├── LICENSE                # addy's MIT licence, verbatim
 │   │   └── <skill>/SKILL.md ...   # all 25 skills (§5)
 │   └── oc/
+│       ├── oc-plan-gateway/SKILL.md
+│       ├── oc-build-gateway/SKILL.md
 │       ├── oc-github/
 │       │   ├── SKILL.md
 │       │   └── templates/         # issue/PR bodies + labels, held only here (D33)
@@ -161,7 +163,7 @@ V4.1 Flash $200.
 
 ### 4.1 `plan` (overrides the built-in)
 
-- **Job:** Define + Plan only. Runs `/spec` and `/plan`. Never writes app code.
+- **Job:** Define + Plan only, through `oc-plan-gateway`. New work passed to `/plan` or bare Plan starts Define when no approved spec exists; `/spec` is an optional explicit shortcut. Never writes app code.
 - **Permissions (ordered, last match wins):**
   - edit `*` deny
   - edit `docs/spec/**` allow
@@ -170,12 +172,12 @@ V4.1 Flash $200.
   - shell `gh issue *` allow
   - shell `gh api *` allow
   - shell `git status*|git log*|git diff*` allow
-  - skill `*` deny; then skill allow for: interview-me, idea-refine, spec-driven-development, constraint-driven-development, api-and-interface-design, source-driven-development, planning-and-task-breakdown, documentation-and-adrs, using-agent-skills, oc-github
+  - skill `*` deny; then skill allow for: interview-me, idea-refine, spec-driven-development, constraint-driven-development, api-and-interface-design, source-driven-development, planning-and-task-breakdown, documentation-and-adrs, using-agent-skills, oc-plan-gateway, oc-github
   - subagent allow `explore`, `general`
 - **System prompt outline:**
-  1. You are the planning half of a two-mode delivery flow (Define → Plan). The `build` mode does the rest.
-  2. Always follow the loaded skill's process. Don't skip its interview or approval steps.
-  3. Output contract: the spec goes to `docs/spec/<slug>.md` in the app repo (not `SPEC.md` at the root), and ADRs go to `docs/decisions/`, and the PRD umbrella issue is created through `oc-github`.
+  1. You are the Plan gateway into the two-mode flow. Follow the attached `using-agent-skills` and `oc-plan-gateway`; no separately invoked `/spec` or `/plan` is required. New work with no approved spec starts Define; an approved spec/PRD resumes slicing.
+  2. Always follow the loaded skill's process. Don't skip its interview, contextual Addy workflows or approval steps.
+  3. Output contract: the spec goes to `docs/spec/<slug>.md` before spec approval, decisions go to `docs/decisions/`, and Plan owns the spec branch/PR plus PRD through `oc-github`. Never hand these operations to Build or claim Plan is unconditionally read-only.
   4. Slices are vertical, each mergeable to `main` on its own, ≤ 1 fresh context of work, and each has `area:*` labels, a blocker list, a flag plan and acceptance criteria. A user-facing change is **one slice through every applicable layer** (for example migration → API → generated client → web → E2E), never split into tier-only PRs. Skip absent layers and generated artifacts; a self-contained full-stack app needs no imaginary backend or API client. Read the repo's `AGENTS.md` front matter for its logical components and stacks.
   5. Two approval checkpoints: after the spec, and before any slice issue is created. Treat hedged answers as not approved.
   6. Delegate read-only repo research to `explore`/`general`.
@@ -187,10 +189,10 @@ V4.1 Flash $200.
   - edit `*` allow (within the session directory)
   - shell `*` ask; shell allow for `git add*|git commit*|git status*|git diff*|git log*|git push -u origin slice/*`, `gh pr *`, `gh issue list*|view|edit|comment|close*`. Tests run only through `oc-sandbox`.
   - shell deny for `docker*`, `sandbox*`, `git push --force*`, `git push * main`, `git reset --hard*`, `rm -rf /*`
-  - skill `*` deny; then skill allow for: incremental-implementation, test-driven-development, context-engineering, source-driven-development, doubt-driven-development, frontend-ui-engineering, api-and-interface-design, browser-testing-with-devtools, debugging-and-error-recovery, code-review-and-quality, code-simplification, security-and-hardening, performance-optimization, git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, oc-worktree, oc-sandbox, oc-github, oc-pr-monitor
+  - skill `*` deny; then skill allow for: using-agent-skills, oc-build-gateway, incremental-implementation, test-driven-development, context-engineering, source-driven-development, doubt-driven-development, frontend-ui-engineering, api-and-interface-design, browser-testing-with-devtools, debugging-and-error-recovery, code-review-and-quality, code-simplification, security-and-hardening, performance-optimization, git-workflow-and-versioning, ci-cd-and-automation, deprecation-and-migration, documentation-and-adrs, observability-and-instrumentation, constraint-driven-development, shipping-and-launch, oc-worktree, oc-sandbox, oc-github, oc-pr-monitor
   - subagent allow `code-reviewer`, `security-auditor`, `explore`
 - **System prompt outline:**
-  1. You are the build half (Build → Verify → Review → Ship). Specs and slices come from `plan`. If a slice is ambiguous or doesn't converge, call `slice_block` with the reason and don't invent requirements.
+  1. You are the Build gateway (Build → Verify → Review → Ship). Follow attached `using-agent-skills` and `oc-build-gateway`, applying every conditional Addy skill whose trigger arises. Specs and slices come from `plan`. If a slice is ambiguous or doesn't converge, call `slice_block` with the reason and don't invent requirements.
   2. In the main checkout, `/build` is the user's persistent coordinator and never implements. It routes user feedback through `slice_message`; after a verified merge it calls `slice_finish`, confirms issue closure, calls `slice_sync`, closes a completed PRD, then starts unblocked slices and reports `slice_status`. READY/BLOCKED/MERGED notifications come back to this session.
   3. In a slice worktree, work through every applicable layer in the vertical order from §9.3 (for example migration → API → generated client → web → E2E), skipping layers and artifacts the repo or slice does not have. For each acceptance criterion, follow addy's `/build` loop: a failing test-only commit (RED, through `sandbox_test`), then a code commit (GREEN). Every test runs in the isolated Docker setup through `oc-sandbox`, never on the host. Never edit or weaken a test to make it pass, and never hand-edit declared generated code.
   4. Then call `code-reviewer` (and `security-auditor` when `risk:security` is set or risky paths change), fix or answer every finding, run `sandbox_gate` and `redgreen_check`, push, open the PR through `oc-github`, and hand over to `oc-pr-monitor`.
@@ -210,32 +212,46 @@ Also vendor addy's `references/` folder, because some skills point into it. `UPS
 
 ## 6. Guaranteed skill loading
 
-Skills load in three layers, from strongest to weakest:
+**Plan and Build are the two simple gateways into addy's lifecycle, not merely
+model choices that require the user to name commands or skills.** The full
+25-Addy-skill activation matrix lives in the global `AGENTS.md`; the two gateway
+skills are canonical for route and handoff behavior.
 
-1. **Command templates** name skills with `@skill-id` (confirmed inside command templates, ADR 0009). In a freshly created worktree session the mention attach can race location boot, so the base skills are _also_ added by layer 2.
-2. **The `oc-skills` plugin** registers `ctx.session.hook("prompt", …)`. The 2.0 prompt hook gets a mutable draft whose `prompt.skills` can be extended ([server plugin docs](https://opencode.ai/docs/build/plugins/server/)). Commands submitted through `session.prompt` run the hook. Two runtime refinements (confirmed in ticket 05):
-   - Worktree sessions share the canonical checkout's plugin registry, and `ctx.location` is the plugin _instance's_ location — so the hook resolves the session's own directory from its `sessionID` (`ctx.session.get`) before reading the slice record.
-   - A skill ID that the registry never had fails admission ("Skill not found"), so oc-skills also _registers_ each app's `apps/<app>/.agents/skills/` as real skills (`ctx.skill.transform`, from the project's canonical checkout at boot and lazily from a slice worktree for skills the slice adds) and appends `skill: allow` rules for those dynamic IDs to the plan/build permission lists (`ctx.agent.transform`) — static allow-lists can't know repo-specific skill IDs.
-   - The trigger: any prompt admitted in a session whose directory is a slice worktree (an `oc-slice.json` record in the worktree's git directory, written by `oc-worktree` at `slice_start`). It adds the base skills plus the area skills from the table below.
-   - Otherwise do nothing. The command templates already cover `/spec` and `/plan`.
-3. **The global `AGENTS.md`** carries the same table, so the model knows which skill applies when work comes outside a command.
+Three loading mechanisms complement one another:
 
-**Scoped skills.** A single-app repo can use root `.agents/skills/`, discovered normally. When components have their own nested skills, such as `apps/<app>/.agents/skills/`, the `oc-skills` hook adds the slice's applicable skills explicitly: `skills` config entries support **no globs** (confirmed, ADR 0009), and project discovery only searches from the current directory upwards. Logical `apps:` keys in `AGENTS.md` do not require an `apps/` directory.
+1. **Primary-mode gateway attachment.** `oc-skills` registers
+   `ctx.session.hook("prompt", …)` and reads `session.agent` through
+   `ctx.session.get`. On every admitted Plan or Build prompt it attaches
+   `using-agent-skills` plus `oc-plan-gateway` or `oc-build-gateway`, whether the
+   request came through bare mode selection or a command. These two slim skills
+   stay unconditional; full phase workflows are invoked by the gateway through the
+   permitted skill tool or named by its commands, avoiding large unconditional
+   contexts. When an older session
+   has no agent field, the configured default `build` applies. Routing/session
+   failures reject admission rather than silently admitting work without its
+   required gateway.
+2. **Command templates** name `@using-agent-skills` and that mode's gateway, plus
+   their command-specific skills (confirmed inside templates, ADR 0009). `/plan`
+   is now a full Plan gateway: with no approved spec it starts Define; with an
+   approved spec it resumes vertical slicing. `/spec`, `/build #N`, `/review`
+   and `/ship` are explicit/recovery forms, not private skill names Robin must
+   remember. Plan alone owns spec files, spec PRs, PRDs and slice issues.
+3. **Slice overlays.** In a slice worktree (`oc-slice.json`, written by
+   `oc-worktree`), the same prompt hook composes the Build gateway + base skills
+   - labels/front-matter/area skills. Base includes incremental implementation,
+     context engineering, TDD, git workflow and `oc-sandbox`; review/simplification
+     and PR-monitor workflows load at their phases through gateway/commands. oc-skills also
+     registers and permits app-scoped skills dynamically because an ID missing from
+     the registry fails admission ("Skill not found").
 
-| Trigger                                        | Skills added                                                                                                                                                                                                              |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/spec`                                        | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                              |
-| `/plan`                                        | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                             |
-| `/build` (main checkout)                       | oc-worktree                                                                                                                                                                                                               |
-| `/build #N` (slice) base                       | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                      |
-| label `area:<app>` (one per logical component) | the skills mapped to that component in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
-| any `area:<app>`                               | applicable component-scoped `.agents/skills/` when present (root skills are discovered normally)                                                                                                                          |
-| label `area:db`                                | deprecation-and-migration (expand/contract)                                                                                                                                                                               |
-| label `area:infra`                             | ci-cd-and-automation                                                                                                                                                                                                      |
-| label `risk:security`                          | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                                  |
-| on test failure                                | debugging-and-error-recovery                                                                                                                                                                                              |
-| `/review`                                      | code-review-and-quality, code-simplification                                                                                                                                                                              |
-| `/ship`                                        | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                                     |
+`using-agent-skills` remains active on every prompt to select conditional Addy
+workflows as context changes: specs, ideas, constraints, official-doc verification,
+doubt review, debugging, docs, security, performance, observability, migration,
+and launch readiness. All 25 vendored skills have a permission owner and an
+activation rule, regression-tested in `tests/addy-skill-coverage.test.ts`; they
+are selected when applicable rather than all run on every task.
+
+**Scoped skills.** A single-app repo can use root `.agents/skills/`, discovered normally. When components have nested skills such as `apps/<app>/.agents/skills/`, the hook adds applicable component skills explicitly: `skills` config entries support no globs and project discovery searches upwards only. Logical `apps:` keys do not require an `apps/` directory. PR delivery (`/ship`) is distinct from production launch (`shipping-and-launch`), which never relaxes merge/deploy restrictions.
 
 ## 7. Plugins (TypeScript, `@opencode/plugin`)
 
@@ -417,10 +433,11 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 1. Validate `opencode.jsonc` against `https://opencode.ai/config.json`.
 2. Check that every skill named in §6, in the permissions and in the command templates exists on disk.
 3. Check that `skills/addy/` matches `UPSTREAM.md`: it was changed only by an `addy-sync` commit, with a `Addy-Sync: <sha>` trailer.
-4. Run the plugin tests (`tests/plugins`).
-5. Run gitleaks and zizmor, with pinned action SHAs.
-6. Enforce LF line endings for `*.sh`, `*.ts` and `*.md`.
-7. Check the model allow-list: every model ID referenced in `opencode.jsonc` and `agents/` uses the `opencode` or `opencode-go` provider and matches the roster in §3.
+4. Run `npm run typecheck` with the strict compiler, unused-local and unused-parameter checks in `tsconfig.json`.
+5. Run the plugin tests (`tests/plugins`).
+6. Run gitleaks and zizmor, with pinned action SHAs.
+7. Enforce LF line endings for `*.sh`, `*.ts` and `*.md`.
+8. Check the model allow-list: every model ID referenced in `opencode.jsonc` and `agents/` uses the `opencode` or `opencode-go` provider and matches the roster in §3.
 
 ## 14. Lessons built in from earlier setups
 

@@ -8,8 +8,10 @@ import {
   parseApps,
   readFrontMatter,
   readSliceRecord,
+  skillsForSession,
   skillsForSlice,
   BASE_SKILLS,
+  PRIMARY_SKILLS,
 } from "../../plugins/oc-skills/skills"
 
 const FRONT_MATTER = `
@@ -32,6 +34,41 @@ afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true })
 })
 
+describe("primary gateway skills", () => {
+  it("gives Plan the always-on discovery skill and its own gateway outside commands", () => {
+    expect(skillsForSession("plan")).toEqual(PRIMARY_SKILLS.plan)
+    expect(skillsForSession("plan")).toContain("using-agent-skills")
+    expect(skillsForSession("plan")).toContain("oc-plan-gateway")
+    expect(skillsForSession("plan")).not.toContain("oc-build-gateway")
+  })
+
+  it("gives Build the always-on discovery skill and its own gateway outside slice records", () => {
+    expect(skillsForSession("build")).toEqual(PRIMARY_SKILLS.build)
+    expect(skillsForSession("build")).toContain("using-agent-skills")
+    expect(skillsForSession("build")).toContain("oc-build-gateway")
+  })
+
+  it("composes gateway, base, and slice area/risk skills without duplicates", () => {
+    const skills = skillsForSession(
+      "build",
+      { issue: 7, labels: ["area:web", "risk:security"] },
+      FRONT_MATTER,
+      "/tmp",
+    )
+    expect(skills).toEqual([
+      ...PRIMARY_SKILLS.build,
+      ...BASE_SKILLS,
+      "frontend-ui-engineering",
+      "browser-testing-with-devtools",
+      "security-and-hardening",
+    ])
+  })
+
+  it("does not infer a gateway for unrelated agents", () => {
+    expect(skillsForSession("explore")).toEqual([])
+  })
+})
+
 describe("parseApps", () => {
   it("parses the canonical single-line flow style", () => {
     const apps = parseApps(FRONT_MATTER)
@@ -48,7 +85,14 @@ describe("parseApps", () => {
 })
 
 describe("skillsForSlice", () => {
-  it("always includes the base skills", () => {
+  it("pins the required slice base skill set", () => {
+    expect(BASE_SKILLS).toEqual([
+      "incremental-implementation",
+      "test-driven-development",
+      "context-engineering",
+      "git-workflow-and-versioning",
+      "oc-sandbox",
+    ])
     expect(skillsForSlice({ issue: 7, labels: [] }, FRONT_MATTER, "/tmp")).toEqual([...BASE_SKILLS])
   })
 
@@ -60,7 +104,7 @@ describe("skillsForSlice", () => {
     const skills = skillsForSlice({ issue: 7, labels: ["slice", "area:api"] }, FRONT_MATTER, dir)
     expect(skills).toContain("api-and-interface-design")
     expect(skills).toContain("api-notes")
-    expect(skills).toContain(...BASE_SKILLS)
+    for (const skill of BASE_SKILLS) expect(skills).toContain(skill)
   })
 
   it("falls back to kind defaults when the app has no skills list", () => {

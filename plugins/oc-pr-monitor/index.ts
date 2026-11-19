@@ -35,7 +35,7 @@ const execFileAsync = (file: string, args: string[], options: any): Promise<{ st
     })
   })
 
-interface WatchRecord {
+type WatchRecord = {
   watchID?: string
   slice: number
   pr: number
@@ -246,7 +246,7 @@ export default Plugin.define({
           const stored = (await ctx.storage.get(`watches/${watch.slice}`)) as WatchRecord | undefined
           if (stored?.watchID && stored.watchID !== watch.watchID) return false
         }
-        await ctx.storage.set(`watches/${watch.slice}`, watch as any)
+        await ctx.storage.set(`watches/${watch.slice}`, watch)
         return true
       })
       watchQueues.set(watch.slice, queued)

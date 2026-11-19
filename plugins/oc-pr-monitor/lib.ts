@@ -11,25 +11,25 @@
  * required check aggregate) passed. The round cap is 5.
  */
 
-export interface ThreadSnapshot {
+export type ThreadSnapshot = {
   id: string
   resolved: boolean
   lastBody: string
 }
 
-export interface CheckSnapshot {
+export type CheckSnapshot = {
   name: string
   state: string // pass | fail | pending | skipping | cancelled | neutral
 }
 
-export interface PRSnapshot {
+export type PRSnapshot = {
   threads: ThreadSnapshot[]
   checks: CheckSnapshot[]
   state: string // OPEN | MERGED | CLOSED
   checkPage?: { hasNextPage: boolean; endCursor?: string }
 }
 
-export interface WakeSummary {
+export type WakeSummary = {
   newUnresolvedThreads: { id: string; body: string }[]
   failedChecks: { name: string; state: string }[]
   threadsOpen: number

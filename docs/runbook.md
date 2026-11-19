@@ -10,20 +10,24 @@ Stay in **one central session in the app repo's main checkout**. Slice sessions
 are visible for optional inspection, but you never need to visit them or move
 between worktrees.
 
-1. **`/spec <idea>`** — the plan agent interviews you before writing anything,
-   then writes `docs/spec/<slug>.md` in the app repo and opens the PRD umbrella
-   issue. Two approval gates: after the spec, and later before any slice issue
-   exists. Hedged answers are not approval.
-2. **`/plan <PRD>`** — proposes vertical slices through every applicable layer
-   (for example migration → API → generated client → web → E2E in one PR),
-   skipping layers and artifacts the repo does not have. It shows you the
-   numbered breakdown, and on approval creates the slice issues
-   as sub-issues with `area:*` labels, blockers and `status:ready`.
-3. **Switch to `/build`** — this central session is now your persistent build
+1. **Enter Plan with the idea (or `/plan <idea>`)** — new work with no approved
+   spec automatically starts addy's interview/spec workflow; you never need to
+   invoke `/spec` first. `/spec` remains an optional explicit Define-only entry.
+   Plan writes `docs/spec/<slug>.md` before requesting approval, then owns the
+   spec branch/PR and PRD after approval. Hedged answers are not approval.
+2. **Continue in Plan after spec approval** — it proposes vertical slices through
+   every applicable layer, skipping layers the repo does not have, then shows you
+   the numbered breakdown. On this second explicit approval, it creates sub-issues
+   with `area:*` labels, blockers and `status:ready`. A PRD with verified linked-spec
+   approval can also be passed as `/plan <PRD>` to resume here. Plan owns these outputs;
+   switching to Build is not needed for file writes or GitHub issue creation.
+3. **Switch to Build** — this central session is now your persistent build
    coordinator. It starts up to 3 unblocked slices. Each gets a worktree off
    `origin/main` (`slice/<N>-<slug>`) and a session already running `/build #N`.
+   Both modes always have `using-agent-skills` and their OC gateway; slice workers
+   automatically get TDD, context, incremental/git workflows and area/risk skills.
 4. **Workers do the routine work** — RED → GREEN through `sandbox_test`, local
-   persona review, then `/ship` to push, open the PR and start its monitor.
+   persona review, conditional Addy workflows, then push, open the PR and monitor.
 5. **Workers exhaust remote feedback before calling you** — new resolvable
    review threads from any PR tool (CodeRabbit, Kilo, Copilot, security scanners,
    etc.) and failed

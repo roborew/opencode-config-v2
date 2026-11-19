@@ -118,7 +118,9 @@ is switched on.
 
 The plugins (`plugins/`) are TypeScript, built on
 [`@opencode/plugin`](https://opencode.ai/docs/build/plugins/server/). Plugin
-dev dependencies live in `package.json`; `npm install && npm test`. Plugin
+dev dependencies live in `package.json`; `npm install`, `npm run typecheck`, and
+`npm test`. The `tsconfig.json` compiler configuration makes strict type and
+unused-code checking real rather than printing `tsc` help. Plugin
 tests live in `tests/plugins/` — small tool-interface tests that create
 temporary git repos at test time. No app code is committed to this repo
 (D34): the flow is accepted by running it on a real app repo.

@@ -46,7 +46,7 @@ describe("selectBackend", () => {
   })
 
   it("auto: a healthy sidecar wins", async () => {
-    const fetchImpl = (async (url: string) => ({ ok: true })) as unknown as typeof fetch
+    const fetchImpl = (async (_url: string) => ({ ok: true })) as unknown as typeof fetch
     const choice = await selectBackend(
       { sidecarUrl: "http://sidecar", sidecarToken: "t" },
       {},

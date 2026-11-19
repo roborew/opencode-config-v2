@@ -20,7 +20,7 @@ import { join } from "node:path"
 export type Backend = "sysbox" | "docker"
 export type BackendChoice = { backend: Backend; sidecar?: Sidecar } | { blocked: string }
 
-export interface Sidecar {
+export type Sidecar = {
   url: string
   token: string
 }
@@ -186,7 +186,7 @@ export function buildDownArgv(contract: TestContract, id: string): string[] {
 
 // ---------------------------------------------------------------- evidence
 
-export interface EvidenceRecord {
+export type EvidenceRecord = {
   sha: string
   service: string
   args: string[]

@@ -116,9 +116,16 @@ jobs:
           ok(`skill references checked against ${ids.size} skills on disk`)
 
           // 7. model allow-list: provider prefix + the blueprint §3 roster
+          // Read only §3 (up to the next level-2 heading) so a model removed
+          // from the roster cannot pass via a stray backticked mention elsewhere.
           const roster = new Set()
           const blueprint = readFileSync("docs/plan/blueprint.md", "utf8")
-          for (const m of blueprint.matchAll(/`(opencode(?:-go)?\/[a-z0-9][a-z0-9.\-]*)`/g)) roster.add(m[1])
+          const section3 = blueprint.split(/^## /m).find((s) => s.startsWith("3. "))
+          if (section3 === undefined) fail("docs/plan/blueprint.md has no §3 section to read the model roster from")
+          for (const m of (section3 ?? "").matchAll(/`(opencode(?:-go)?\/[a-z0-9][a-z0-9.\-]*)`/g)) roster.add(m[1])
+          if (section3 !== undefined && roster.size === 0) {
+            fail("docs/plan/blueprint.md §3 lists no model IDs to build the roster from")
+          }
           const modelOk = (m, where) => {
             if (typeof m !== "string" || !/^opencode(?:-go)?\//.test(m)) {
               fail(`${where}: model '${m}' is not on the opencode/opencode-go providers`)
@@ -162,6 +169,24 @@ jobs:
           done
           if [ "$bad" -ne 0 ]; then exit 1; fi
           echo "ok: every skills/addy/ commit carries an Addy-Sync trailer"
+
+  typecheck:
+    name: Type checking
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: package.json
+      - name: Install and run TypeScript checking
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
 
   plugin-tests:
     name: Plugin tests

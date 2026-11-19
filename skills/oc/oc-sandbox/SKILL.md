@@ -48,6 +48,13 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
   surface which delivery failed and identify the issue comment if one exists;
   do not post the same blocker comment again.
 - Test-path globs come from the repo's `AGENTS.md` front matter (`test_globs`).
+- `sandbox_up`, `sandbox_test` and `sandbox_gate` materialize every Compose
+  mountpoint in the worktree (bind sources, nested anonymous-volume targets)
+  as the invoking user before containers start, so the Docker daemon never
+  creates root-owned directories there. A BLOCKED mountpoint message names the
+  exact path and the remedy — restore a missing file, remove a root-owned empty
+  directory yourself, or fix the mount. Never chown, never delete, never
+  weaken the check; `slice_finish` keeps its fail-closed removal guard.
 
 Never run `docker`, `sandbox` or `just` test commands directly — they are denied
 for good reason: raw runs are not isolated and leave no evidence.

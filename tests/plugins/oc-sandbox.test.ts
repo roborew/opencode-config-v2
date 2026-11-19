@@ -1,16 +1,23 @@
 import { execSync, spawn } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import {
+  type ComposeModel,
+  type PlannedMountpoint,
+  buildComposeConfigArgv,
   buildDownArgv,
+  buildProfileListArgv,
   buildTestArgv,
   buildWarmArgv,
   classifyCommit,
   envSecrets,
   globMatch,
+  materializeMountpoints,
   parseTestContract,
+  planMountpoints,
+  prepareMountpoints,
   redactTail,
   redgreenCheck,
   sandboxId,
@@ -282,4 +289,443 @@ describe("integration with a real Docker daemon (docker backend)", () => {
       )
     }
   }, 240_000)
+})
+
+// ------------------------------------------------------------ mountpoint preflight
+//
+// Docker materializes missing host mountpoints as root: bind sources that do
+// not exist, and — through the bind — the host-side mountpoints of anonymous
+// volumes nested under a bind target (Rekalled #41). oc-sandbox must create
+// every such path as the invoking user before any Compose operation.
+
+const UID = process.getuid?.() ?? 0
+const GID = process.getgid?.() ?? 0
+
+const mountFixture = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), "sandbox-mnt-"))
+  tmpDirs.push(dir)
+  return dir
+}
+
+const ownedByInvokingUser = (p: string) => {
+  const st = statSync(p)
+  expect(st.uid).toBe(UID)
+  expect(st.gid).toBe(GID)
+}
+
+const byPath = (a: PlannedMountpoint, b: PlannedMountpoint) => (a.hostPath < b.hostPath ? -1 : 1)
+
+/** The Rekalled #41 effective mount shape, as `docker compose config` renders it. */
+const nestedModel = (wt: string): ComposeModel => ({
+  services: {
+    "api-client-gen": {
+      volumes: [
+        { type: "bind", source: join(wt, "apps/api"), target: "/repo/apps/api" },
+        { type: "volume", target: "/repo/apps/api/.venv" },
+        { type: "bind", source: "./packages/api-client", target: "/repo/packages/api-client" },
+        { type: "volume", target: "/repo/packages/api-client/node_modules" },
+      ],
+    },
+  },
+})
+
+describe("planMountpoints", () => {
+  it("plans bind sources and nested anonymous-volume mountpoints (the Rekalled #41 shape)", () => {
+    const wt = mountFixture()
+    expect(planMountpoints(nestedModel(wt), wt).sort(byPath)).toEqual([
+      { hostPath: join(wt, "apps/api"), service: "api-client-gen", kind: "bind", inside: true },
+      { hostPath: join(wt, "apps/api/.venv"), service: "api-client-gen", kind: "nested-volume", inside: true },
+      { hostPath: join(wt, "packages/api-client"), service: "api-client-gen", kind: "bind", inside: true },
+      {
+        hostPath: join(wt, "packages/api-client/node_modules"),
+        service: "api-client-gen",
+        kind: "nested-volume",
+        inside: true,
+      },
+    ])
+  })
+
+  it("flags binds that resolve outside the worktree", () => {
+    const wt = mountFixture()
+    const model: ComposeModel = {
+      services: {
+        svc: {
+          volumes: [
+            { type: "bind", source: "../../shared-cache", target: "/repo/shared" },
+            { type: "volume", target: "/repo/shared/.build" },
+          ],
+        },
+      },
+    }
+    expect(planMountpoints(model, wt).sort(byPath)).toEqual([
+      { hostPath: resolve(wt, "../../shared-cache"), service: "svc", kind: "bind", inside: false },
+      {
+        hostPath: resolve(wt, "../../shared-cache/.build"),
+        service: "svc",
+        kind: "nested-volume",
+        inside: false,
+      },
+    ])
+  })
+
+  it("ignores named volumes, tmpfs and anonymous volumes not nested under a bind", () => {
+    const wt = mountFixture()
+    const model: ComposeModel = {
+      services: {
+        svc: {
+          volumes: [
+            { type: "volume", source: "cache", target: "/repo/cache" },
+            { type: "tmpfs", target: "/repo/tmp" },
+            { type: "volume", target: "/repo/plain" },
+          ],
+        },
+      },
+    }
+    expect(planMountpoints(model, wt)).toEqual([])
+  })
+
+  it("nests anonymous volumes under the deepest covering bind", () => {
+    const wt = mountFixture()
+    const model: ComposeModel = {
+      services: {
+        svc: {
+          volumes: [
+            { type: "bind", source: join(wt, "repo"), target: "/repo" },
+            { type: "bind", source: join(wt, "apps/api"), target: "/repo/apps/api" },
+            { type: "volume", target: "/repo/apps/api/.venv" },
+          ],
+        },
+      },
+    }
+    expect(planMountpoints(model, wt).sort(byPath)).toContainEqual({
+      hostPath: join(wt, "apps/api/.venv"),
+      service: "svc",
+      kind: "nested-volume",
+      inside: true,
+    })
+  })
+})
+
+describe("materializeMountpoints", () => {
+  it("creates nested anonymous-volume mountpoints as the invoking uid/gid and verifies existing binds", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    mkdirSync(join(wt, "packages/api-client"), { recursive: true })
+
+    const result = materializeMountpoints(wt, planMountpoints(nestedModel(wt), wt))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.created.sort()).toEqual([join(wt, "apps/api/.venv"), join(wt, "packages/api-client/node_modules")])
+
+    ownedByInvokingUser(join(wt, "apps/api/.venv"))
+    ownedByInvokingUser(join(wt, "packages/api-client/node_modules"))
+    ownedByInvokingUser(join(wt, "apps/api"))
+    ownedByInvokingUser(join(wt, "packages/api-client"))
+  })
+
+  it("creates missing bind sources recursively as directories, as the daemon would (but owned)", () => {
+    const wt = mountFixture()
+    const model: ComposeModel = {
+      services: { svc: { volumes: [{ type: "bind", source: join(wt, "outputs/dist"), target: "/dist" }] } },
+    }
+    const result = materializeMountpoints(wt, planMountpoints(model, wt))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.created).toEqual([join(wt, "outputs"), join(wt, "outputs/dist")])
+    expect(statSync(join(wt, "outputs/dist")).isDirectory()).toBe(true)
+    ownedByInvokingUser(join(wt, "outputs/dist"))
+  })
+
+  it("is idempotent — a second run verifies the same paths and creates nothing", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    const planned = planMountpoints(nestedModel(wt), wt)
+    const first = materializeMountpoints(wt, planned)
+    expect(first.ok).toBe(true)
+    const second = materializeMountpoints(wt, planned)
+    expect(second.ok).toBe(true)
+    if (second.ok) expect(second.created).toEqual([])
+  })
+
+  it("plans across multiple services with long-form (config-normalized) mounts and dedups paths", () => {
+    const wt = mountFixture()
+    const longFormMounts = (read_only?: boolean): { volumes: unknown[] } => ({
+      volumes: [
+        { type: "bind", source: join(wt, "shared"), target: "/repo/shared", read_only },
+        { type: "volume", target: "/repo/shared/cache" },
+      ],
+    })
+    const model = {
+      services: { alpha: longFormMounts(true), beta: longFormMounts() },
+    } as unknown as ComposeModel
+    const result = materializeMountpoints(wt, planMountpoints(model, wt))
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(new Set(result.created).size).toBe(result.created.length)
+      expect(result.created).toEqual([join(wt, "shared"), join(wt, "shared/cache")].sort())
+    }
+    ownedByInvokingUser(join(wt, "shared/cache"))
+  })
+
+  it("fails closed on a foreign-owned existing mountpoint and never removes it", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, ".venv"))
+    const planned: PlannedMountpoint[] = [
+      { hostPath: join(wt, ".venv"), service: "api-client-gen", kind: "nested-volume", inside: true },
+    ]
+    const result = materializeMountpoints(wt, planned, { uid: UID + 1, gid: GID })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.blocked).toContain(join(wt, ".venv"))
+      expect(result.blocked).toContain(`uid ${UID}:gid ${GID}`)
+      expect(result.blocked).toContain(`expected uid ${UID + 1}:gid ${GID}`)
+      expect(result.blocked).toContain("api-client-gen")
+      expect(result.blocked).toContain("never chowns or removes")
+    }
+    expect(existsSync(join(wt, ".venv"))).toBe(true) // never removed
+  })
+
+  it("fails closed on a missing bind source that git tracks as a file", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    const model: ComposeModel = {
+      services: { svc: { volumes: [{ type: "bind", source: join(wt, "apps/api/requirements.txt"), target: "/req.txt" }] } },
+    }
+    const result = materializeMountpoints(wt, planMountpoints(model, wt), { trackedFile: () => true })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.blocked).toContain("git tracks a file")
+    expect(existsSync(join(wt, "apps/api/requirements.txt"))).toBe(false) // no rogue directory either
+  })
+
+  it("fails closed when an existing file blocks a nested volume mountpoint", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    writeFileSync(join(wt, "apps/api/.venv"), "not a mountpoint")
+    const result = materializeMountpoints(wt, planMountpoints(nestedModel(wt), wt))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.blocked).toContain(join(wt, "apps/api/.venv"))
+    expect(statSync(join(wt, "apps/api/.venv")).isFile()).toBe(true)
+  })
+
+  it("fails closed when a file sits in the directory chain of a missing bind", () => {
+    const wt = mountFixture()
+    writeFileSync(join(wt, "cfg"), "a file")
+    const model: ComposeModel = {
+      services: { svc: { volumes: [{ type: "bind", source: join(wt, "cfg/app.yaml"), target: "/app.yaml" }] } },
+    }
+    const result = materializeMountpoints(wt, planMountpoints(model, wt))
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.blocked).toContain(join(wt, "cfg"))
+  })
+
+  it("preserves existing file binds — verifies them, never mkdirs over them", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    writeFileSync(join(wt, "apps/api/requirements.txt"), "fastapi")
+    const model: ComposeModel = {
+      services: { svc: { volumes: [{ type: "bind", source: join(wt, "apps/api/requirements.txt"), target: "/req.txt" }] } },
+    }
+    const result = materializeMountpoints(wt, planMountpoints(model, wt))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.created).toEqual([])
+    expect(statSync(join(wt, "apps/api/requirements.txt")).isFile()).toBe(true)
+    ownedByInvokingUser(join(wt, "apps/api/requirements.txt"))
+  })
+
+  it("fails closed on symlink escape, allows symlinks that stay inside the worktree", () => {
+    const wt = mountFixture()
+    const plannedEscape: PlannedMountpoint[] = [
+      { hostPath: join(wt, "out-link"), service: "svc", kind: "bind", inside: true },
+    ]
+    symlinkSync(tmpdir(), join(wt, "out-link"))
+    const escaped = materializeMountpoints(wt, plannedEscape)
+    expect(escaped.ok).toBe(false)
+    if (!escaped.ok) {
+      expect(escaped.blocked).toContain("outside the worktree")
+      expect(escaped.blocked).toContain(join(wt, "out-link"))
+    }
+
+    // a symlink to a sibling directory inside the worktree is fine, and
+    // nested mountpoints through it land on the real target
+    symlinkSync("real", join(wt, "in-link"))
+    const plannedInside: PlannedMountpoint[] = [
+      { hostPath: join(wt, "in-link"), service: "svc", kind: "bind", inside: true },
+      { hostPath: join(wt, "in-link/.venv"), service: "svc", kind: "nested-volume", inside: true },
+    ]
+    const inside = materializeMountpoints(wt, plannedInside)
+    expect(inside.ok).toBe(true)
+    expect(existsSync(join(wt, "real/.venv"))).toBe(true)
+    ownedByInvokingUser(join(wt, "real/.venv"))
+  })
+
+  it("fails closed on a missing bind outside the worktree, skips one that exists", () => {
+    const wt = mountFixture()
+    const missing = { hostPath: resolve(wt, "../../no-such-mount-source"), service: "svc", kind: "bind" as const, inside: false }
+    const blocked = materializeMountpoints(wt, [missing])
+    expect(blocked.ok).toBe(false)
+    if (!blocked.ok) {
+      expect(blocked.blocked).toContain("outside the worktree")
+      expect(blocked.blocked).toContain("no-such-mount-source")
+    }
+
+    const existing = { hostPath: tmpdir(), service: "svc", kind: "bind" as const, inside: false }
+    expect(materializeMountpoints(wt, [existing]).ok).toBe(true)
+  })
+
+  it("is a no-op for projects without nested volumes", () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    const model: ComposeModel = {
+      services: { test: { volumes: [{ type: "bind", source: join(wt, "apps/api"), target: "/repo/apps/api" }] } },
+    }
+    const before = readdirSync(wt)
+    const result = materializeMountpoints(wt, planMountpoints(model, wt))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.created).toEqual([])
+    expect(readdirSync(wt)).toEqual(before)
+  })
+})
+
+describe("prepareMountpoints (compose config orchestration)", () => {
+  it("reads the declared profiles, renders the effective model and materializes the plan", async () => {
+    const wt = mountFixture()
+    mkdirSync(join(wt, "apps/api"), { recursive: true })
+    const model = nestedModel(wt)
+    const calls: string[][] = []
+    const runCompose = async (argv: string[]) => {
+      calls.push(argv)
+      if (argv.at(-1) === "--profiles") return { exitCode: 0, stdout: "full\ntest\n", stderr: "" }
+      return { exitCode: 0, stdout: JSON.stringify(model), stderr: "" }
+    }
+
+    const result = await prepareMountpoints(wt, "compose.yml", { runCompose })
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.created).toContain(join(wt, "apps/api/.venv"))
+    expect(calls[0]).toEqual(buildProfileListArgv("compose.yml"))
+    expect(calls[1]).toEqual(buildComposeConfigArgv("compose.yml", ["full", "test"]))
+  })
+
+  it("fails closed when the model cannot be rendered, with the output redacted", async () => {
+    const wt = mountFixture()
+    const runCompose = async (argv: string[]) =>
+      argv.at(-1) === "--profiles"
+        ? { exitCode: 0, stdout: "test\n", stderr: "" }
+        : { exitCode: 1, stdout: "", stderr: "interpolation failed: SECRETVALUE is undefined" }
+
+    const result = await prepareMountpoints(wt, "compose.yml", { runCompose, secrets: ["SECRETVALUE"] })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.blocked).toContain("mountpoint preflight")
+      expect(result.blocked).not.toContain("SECRETVALUE")
+      expect(result.blocked).toContain("[redacted]")
+    }
+  })
+})
+
+describe("integration with a real Docker daemon: mountpoint preflight", () => {
+  const dockerAvailable = (() => {
+    try {
+      execSync("docker info --format x", { stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 })
+      return true
+    } catch {
+      return false
+    }
+  })()
+
+  const walkOwned = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name)
+      ownedByInvokingUser(p)
+      if (entry.isDirectory()) walkOwned(p)
+    }
+  }
+
+  it.skipIf(!dockerAvailable)(
+    "preflight + compose up + run: every host mountpoint is owned by the invoking uid/gid, worktree removable without chmod",
+    async () => {
+      const wt = mkdtempSync(join(tmpdir(), "sandbox-mnt-int-"))
+      tmpDirs.push(wt)
+      mkdirSync(join(wt, "apps/api"), { recursive: true })
+      writeFileSync(
+        join(wt, "compose.yml"),
+        [
+          "services:",
+          "  tester:",
+          "    image: alpine:3.20",
+          "    profiles: [test]",
+          "    command: [sleep, infinity]",
+          "    volumes:",
+          "      - ./apps/api:/repo/apps/api",
+          "      - /repo/apps/api/.venv",
+          "  gen:",
+          "    image: alpine:3.20",
+          "    profiles: [test]",
+          "    command: [sleep, infinity]",
+          "    volumes:",
+          "      - type: bind",
+          "        source: ./packages/api-client",
+          "        target: /repo/packages/api-client",
+          "      - type: volume",
+          "        target: /repo/packages/api-client/node_modules",
+          "      - cache:/repo/cache",
+          "volumes:",
+          "  cache: {}",
+          "",
+        ].join("\n"),
+      )
+
+      // the preflight materializes everything before any Compose operation
+      const pre = await prepareMountpoints(wt, "compose.yml")
+      expect(pre.ok).toBe(true)
+      if (!pre.ok) return
+      expect(pre.created.sort()).toEqual(
+        [
+          join(wt, "apps/api/.venv"),
+          join(wt, "packages"),
+          join(wt, "packages/api-client"),
+          join(wt, "packages/api-client/node_modules"),
+        ].sort(),
+      )
+      ownedByInvokingUser(join(wt, "apps/api/.venv"))
+      ownedByInvokingUser(join(wt, "packages/api-client/node_modules"))
+
+      const id = sandboxId("97", wt)
+      const run = (argv: string[]) =>
+        new Promise<{ code: number; out: string }>((resolve) => {
+          const p = spawn(argv[0], argv.slice(1), { cwd: wt })
+          let out = ""
+          p.stdout?.on("data", (d) => (out += d))
+          p.stderr?.on("data", (d) => (out += d))
+          p.on("error", (e) => resolve({ code: 1, out: String(e) }))
+          p.on("close", (code) => resolve({ code: code ?? 1, out }))
+        })
+
+      try {
+        // the daemon finds the mountpoints already there and creates nothing
+        const up = await run(["docker", "compose", "-p", id, "-f", "compose.yml", "--profile", "test", "up", "-d", "--wait"])
+        expect(up.code).toBe(0)
+        ownedByInvokingUser(join(wt, "apps/api/.venv"))
+        ownedByInvokingUser(join(wt, "packages/api-client/node_modules"))
+
+        // a `compose run` (the sandbox_test shape) creates another container — same mounts
+        const testRun = await run(["docker", "compose", "-p", id, "-f", "compose.yml", "--profile", "test", "run", "--rm", "tester", "echo", "mountpoint-ok"])
+        expect(testRun.code).toBe(0)
+        expect(testRun.out).toContain("mountpoint-ok")
+
+        // no foreign-owned entries anywhere in the worktree
+        walkOwned(wt)
+
+        const down = await run(["docker", "compose", "-p", id, "-f", "compose.yml", "down", "-v", "--remove-orphans"])
+        expect(down.code).toBe(0)
+      } finally {
+        execSync(`docker compose -p ${id} -f compose.yml --profile test down -v --remove-orphans >/dev/null 2>&1 || true`, {
+          cwd: wt,
+        })
+      }
+
+      // slice_finish's shape: the worktree must be removable without chmod —
+      // on a Linux host this is the proof that no root-owned entry was left
+      rmSync(wt, { recursive: true, force: true })
+      expect(existsSync(wt)).toBe(false)
+    },
+    240_000,
+  )
 })

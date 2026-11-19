@@ -12,6 +12,7 @@ import {
   buildWarmArgv,
   envSecrets,
   parseTestContract,
+  prepareMountpoints,
   readFrontMatter,
   redactTail,
   redgreenCheck,
@@ -142,6 +143,19 @@ export default Plugin.define({
       return map
     }
 
+    /**
+     * The mountpoint preflight: materializes every host path the Docker daemon
+     * would otherwise create as root (bind sources and nested anonymous-volume
+     * mountpoints inside the worktree) as the invoking user, and verifies
+     * existing ones. Runs on the host for both backends — the worktree paths
+     * are host paths no matter where Compose runs. Fails closed.
+     */
+    const mountpointPreflight = async (worktree: string): Promise<string | null> => {
+      const contract = parseTestContract(readFrontMatter(worktree))
+      const pre = await prepareMountpoints(worktree, contract.composeFile, { secrets: envSecrets(worktree) })
+      return pre.ok ? null : pre.blocked
+    }
+
     const ensureUp = async (
       worktree: string,
     ): Promise<{ ok: true; state: SandboxState } | { ok: false; blocked: string }> => {
@@ -155,6 +169,8 @@ export default Plugin.define({
       if (!existsSync(join(worktree, contract.composeFile))) {
         return { ok: false, blocked: `no ${contract.composeFile} in ${worktree} — the repo's test contract is missing` }
       }
+      const mountpoints = await mountpointPreflight(worktree)
+      if (mountpoints) return { ok: false, blocked: mountpoints }
       const choice = await selectBackend(ctx.options as Record<string, string | undefined>, process.env)
       if ("blocked" in choice) return { ok: false, blocked: choice.blocked }
       const state: SandboxState = { id, backend: choice.backend, sidecar: choice.sidecar, createdAt: Date.now() }
@@ -239,6 +255,8 @@ export default Plugin.define({
           const wt = await sessionDir(context.sessionID)
           const up = await ensureUp(wt)
           if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          const mountpoints = await mountpointPreflight(wt)
+          if (mountpoints) return { content: `BLOCKED: ${mountpoints}` }
           const contract = parseTestContract(readFrontMatter(wt))
           const service = input.service ?? contract.services.all ?? "test"
           const argv = buildTestArgv(contract, up.state.id, service, input.args ?? [])
@@ -262,6 +280,8 @@ export default Plugin.define({
           const wt = await sessionDir(context.sessionID)
           const up = await ensureUp(wt)
           if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          const mountpoints = await mountpointPreflight(wt)
+          if (mountpoints) return { content: `BLOCKED: ${mountpoints}` }
           const contract = parseTestContract(readFrontMatter(wt))
           const steps: { step: string; passed: boolean; detail?: string }[] = []
           const secrets = envSecrets(wt)

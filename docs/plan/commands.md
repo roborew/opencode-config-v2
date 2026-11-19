@@ -6,37 +6,41 @@ These are drafts of the files in `commands/`. They are adapted from addy's `comm
 
 ```markdown
 ---
-description: Define — interview, then write a spec and open the PRD issue
+description: Define — explicit entry to interview, write a spec, and open the PRD issue
 agent: plan
 ---
 
-@interview-me @spec-driven-development @oc-github
+@using-agent-skills @oc-plan-gateway @interview-me @spec-driven-development @oc-github
 
 Idea: $ARGUMENTS
 
-1. Interview me until objective, users, acceptance criteria, constraints and boundaries are clear. If the idea is still vague, also load @idea-refine. If interfaces or contracts change, also load @api-and-interface-design.
-2. Read the repo's AGENTS.md front matter (apps, stacks, contract). Write the spec to docs/spec/<slug>.md (not SPEC.md). Use explore/general subagents for any repo research.
-3. Show me the spec and wait for an unambiguous approval ("approve", "go", "yes"). Hedged answers are not approval.
-4. After approval: commit the spec on a `spec/<slug>` branch, open a PR for it, and create the PRD issue (label `prd`) from the PRD template, linking the spec.
+This is an explicit Define-only entry into `oc-plan-gateway`; it is not an extra gateway the user must invoke before `/plan`.
+
+1. Follow the gateway's Define workflow, including the applicable Addy clarification and contextual skills. If the idea is vague, load @idea-refine; for contract changes, load @api-and-interface-design.
+2. Read the repo's AGENTS.md front matter and write the spec to `docs/spec/<slug>.md` (delta specs remain separate). Use explore/general subagents for repo research.
+3. **The spec file must exist before approval.** Show its path and contents or a faithful summary, plus open questions, then stop for explicit approval. A chat-only draft is not a written spec.
+4. After approval, Plan commits the spec on `spec/<slug>`, opens its PR, and creates the PRD issue through oc-github. Request required shell approval rather than handing this work to Build.
+5. Planning may resume only after that later-turn approval, following the gateway; the numbered slice breakdown gets its own approval gate before issues are created.
 ```
 
 ## commands/plan.md
 
 ```markdown
 ---
-description: Plan — split an approved spec into vertical-slice issues
+description: Plan — enter Define for new work or split an approved spec into vertical-slice issues
 agent: plan
 ---
 
-@planning-and-task-breakdown @oc-github
+@using-agent-skills @oc-plan-gateway @interview-me @spec-driven-development @planning-and-task-breakdown @oc-github
 
-PRD: $ARGUMENTS (issue number or spec path)
+Work or PRD: $ARGUMENTS (an idea, change, spec path, or issue number; a PRD is not required)
 
-1. Read the spec and the relevant code (through explore). Plan in read-only mode.
-2. Draft vertical slices: each one goes through every applicable layer in one slice (for example migration → API → generated client → web → E2E, never split into tier-only PRs), skipping layers and generated artifacts the repo does not have. A full-stack app or repo with no separate API needs no imaginary backend or client-generation steps. Each slice is mergeable to main on its own and fits one fresh context. Record dependencies. Schema changes are expand/contract. Incomplete behaviour hides behind a flag, and each flag gets a `flag-removal` slice.
-3. For each slice: title, what to build, acceptance criteria, blocked-by, an `area:<app>` label for each logical component from the repo's `AGENTS.md` touched (+ `area:db`/`area:infra`), contract change yes/no, `risk:security` when it applies, and the flag plan.
-4. Show me the numbered breakdown and wait for an unambiguous approval.
-5. After approval: create the slice issues in dependency order as sub-issues of the PRD, with blocking relationships and `status:ready`. If a decision was made, record it with @documentation-and-adrs.
+Follow `oc-plan-gateway` as the canonical workflow.
+
+- A new idea or significant change without an approved spec starts **Define** automatically. Do not ask the user to invoke `/spec` and do not jump straight to slicing.
+- An approved spec/PRD without an approved breakdown resumes at **Plan slices**.
+- The spec must be written under `docs/spec/**` before its approval gate. Plan owns the spec branch/PR and PRD after approval, then the numbered-breakdown gate and GitHub slice issues. Do not hand these writes or GitHub operations to Build.
+- Before breakdown approval, research and drafting only: do not edit repo files or create issues. After approval, create the slice issues. The plan record is the spec + PRD + linked issues, not `tasks/plan.md` or `tasks/todo.md`.
 ```
 
 ## commands/build.md
@@ -47,7 +51,7 @@ description: Build — coordinate slices (main checkout) or build one slice (#N)
 agent: build
 ---
 
-@oc-worktree
+@using-agent-skills @oc-build-gateway @oc-worktree
 
 Arguments: $ARGUMENTS
 

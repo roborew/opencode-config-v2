@@ -14,10 +14,17 @@ import { join } from "node:path"
  * working directory, so this hook is the only reliable way those skills load.
  */
 
+/** Always loaded for a primary session, including sessions started without a command. */
+export const PRIMARY_SKILLS = {
+  plan: ["using-agent-skills", "oc-plan-gateway"],
+  build: ["using-agent-skills", "oc-build-gateway"],
+} as const
+
 export const BASE_SKILLS = [
   "incremental-implementation",
   "test-driven-development",
   "context-engineering",
+  "git-workflow-and-versioning",
   "oc-sandbox",
 ]
 
@@ -170,6 +177,21 @@ export function appsWithSkills(directory: string): string[] {
   return readdirSync(appsDir, { withFileTypes: true })
     .filter((e) => e.isDirectory() && existsSync(join(appsDir, e.name, ".agents", "skills")))
     .map((e) => e.name)
+}
+
+/** Primary-gateway skills plus the slice overlay, in stable insertion order without duplicates. */
+export function skillsForSession(
+  agent: string | undefined,
+  record?: SliceRecord,
+  frontMatter = "",
+  directory = "",
+): string[] {
+  const primary = agent === "plan" || agent === "build" ? PRIMARY_SKILLS[agent] : []
+  const skills = new Set<string>(primary)
+  if (record) {
+    for (const skill of skillsForSlice(record, frontMatter, directory)) skills.add(skill)
+  }
+  return [...skills]
 }
 
 /** The skills a slice session should have loaded, from its record and the repo's front matter. */

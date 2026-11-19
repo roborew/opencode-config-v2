@@ -5,11 +5,11 @@ import {
   parseSkillFile,
   readFrontMatter,
   readSliceRecord,
-  skillsForSlice,
+  skillsForSession,
 } from "./skills"
 
 /**
- * oc-skills — guaranteed skill loading in slice sessions (blueprint §6/§7.4).
+ * oc-skills — guaranteed gateway and contextual skill loading (blueprint §6/§7.4).
  *
  * Two things it does, both needed because per-app skills sit below the session
  * working directory where OpenCode's discovery can't see them (no glob support
@@ -25,10 +25,11 @@ import {
  *    (ctx.agent.transform), because their static allow-lists can't know
  *    repo-specific skill IDs.
  *
- * And the prompt hook: when a prompt is admitted in a session whose working
- * directory is a slice worktree (an oc-slice.json record in the worktree's git
- * directory, written by oc-worktree at slice_start), it adds the slice's base
- * and area skills to prompt.skills.
+ * The prompt hook loads using-agent-skills and the Plan or Build gateway in every
+ * primary session, even without a command. In a slice worktree (an oc-slice.json
+ * record written by oc-worktree at slice_start), it also adds the slice's base
+ * and area skills. Session-resolution errors reject prompt admission rather than
+ * silently dropping required workflows.
  *
  * Worktree sessions share the canonical checkout's plugin registry and
  * ctx.location is the plugin instance's location — NOT the session's — so the
@@ -87,27 +88,29 @@ export default Plugin.define({
 
     await ctx.session.hook("prompt", async (event: any) => {
       try {
-        let directory: string = ctx.location.directory
-        if (event.sessionID) {
-          const session: any = await ctx.session.get({ sessionID: event.sessionID })
-          if (session?.location?.directory) directory = session.location.directory
-        }
+        if (!event.sessionID) throw new Error("prompt has no session ID")
+        const session: any = await ctx.session.get({ sessionID: event.sessionID })
+        const directory: string = session?.location?.directory ?? ctx.location.directory
+        const agent: string = session?.agent ?? "build" // opencode.jsonc's configured default
         const record = readSliceRecord(directory)
-        if (!record) return
-        // a slice worktree may add app skills the canonical checkout didn't have
-        const apps = (record.labels ?? [])
-          .filter((l: string) => l.startsWith("area:") && !["db", "infra", "docs"].includes(l.slice(5)))
-          .map((l: string) => l.slice(5))
-        await ensureAppSkills(directory, apps)
-        const frontMatter = readFrontMatter(directory)
-        const wanted = skillsForSlice(record, frontMatter, directory)
+        if (record) {
+          // a slice worktree may add app skills the canonical checkout didn't have
+          const apps = (record.labels ?? [])
+            .filter((l: string) => l.startsWith("area:") && !["db", "infra", "docs"].includes(l.slice(5)))
+            .map((l: string) => l.slice(5))
+          await ensureAppSkills(directory, apps)
+        }
+        const frontMatter = record ? readFrontMatter(directory) : ""
+        const wanted = skillsForSession(agent, record, frontMatter, directory)
         const existing = new Set((event.prompt.skills ?? []).map((s: any) => s.id))
         const add = wanted.filter((s) => !existing.has(s))
         if (add.length === 0) return
         event.prompt.skills = [...(event.prompt.skills ?? []), ...add.map((id) => ({ id }))]
-        console.log(`[oc-skills] slice #${record.issue} in ${directory}: added ${add.join(", ")}`)
+        const slice = record ? ` slice #${record.issue}` : ""
+        console.log(`[oc-skills] ${agent}${slice} in ${directory}: added ${add.join(", ")}`)
       } catch (error) {
-        console.error("[oc-skills] prompt hook failed:", error)
+        console.error("[oc-skills] refusing prompt without required skill routing:", error)
+        throw error
       }
     })
     return () => { }

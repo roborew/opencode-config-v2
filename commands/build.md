@@ -3,7 +3,7 @@ description: Build — coordinate slices (main checkout) or build one slice (#N)
 agent: build
 ---
 
-@oc-worktree
+@using-agent-skills @oc-build-gateway @oc-worktree
 
 Arguments: $ARGUMENTS
 

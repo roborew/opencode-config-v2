@@ -97,7 +97,7 @@ describe("skillsForSlice", () => {
     const skills = skillsForSlice({ issue: 7, labels: ["slice", "area:api"] }, FRONT_MATTER, dir)
     expect(skills).toContain("api-and-interface-design")
     expect(skills).toContain("api-notes")
-    expect(skills).toContain(...BASE_SKILLS)
+    for (const skill of BASE_SKILLS) expect(skills).toContain(skill)
   })
 
   it("falls back to kind defaults when the app has no skills list", () => {

@@ -24,26 +24,48 @@ Core rules in every mode:
 - Models come from OpenCode Zen and OpenCode Go only; force-push and
   push-to-main are denied by policy.
 
-## Phase → skill table
+## Two gateway modes, then contextual Addy skills
 
-Skills load deterministically: command templates name them with `@skill-id`,
-and the `oc-skills` prompt hook adds the slice's base and `area:*` skills. This
-table is the soft fallback when work arrives outside a command.
+**Plan and Build are the only gateways Robin needs.** The `oc-skills` prompt hook
+reads `session.agent` and always attaches `using-agent-skills` plus
+`oc-plan-gateway` or `oc-build-gateway`, including sessions without a command.
+Commands are explicit/recovery entry points into the same gateways, not a second
+workflow. A routing failure rejects prompt admission rather than silently losing
+required skills.
 
-| Trigger                                        | Skills added                                                                                                                                                                                                              |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/spec`                                        | interview-me, spec-driven-development (+ idea-refine if the idea is vague; + api-and-interface-design when contracts change)                                                                                              |
-| `/plan`                                        | planning-and-task-breakdown, oc-github (+ documentation-and-adrs when a decision is recorded)                                                                                                                             |
-| `/build` (main checkout)                       | oc-worktree                                                                                                                                                                                                               |
-| `/build #N` (slice) base                       | incremental-implementation, test-driven-development, context-engineering, oc-sandbox                                                                                                                                      |
-| label `area:<app>` (one per logical component) | the skills mapped to that component in the repo's `AGENTS.md` front matter (`apps.<app>.skills`). Defaults by kind: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
-| any `area:<app>`                               | that app's own `apps/<app>/.agents/skills/` (added by the oc-skills hook)                                                                                                                                                 |
-| label `area:db`                                | deprecation-and-migration (expand/contract)                                                                                                                                                                               |
-| label `area:infra`                             | ci-cd-and-automation                                                                                                                                                                                                      |
-| label `risk:security`                          | security-and-hardening (+ the security-auditor subagent)                                                                                                                                                                  |
-| on test failure                                | debugging-and-error-recovery                                                                                                                                                                                              |
-| `/review`                                      | code-review-and-quality, code-simplification                                                                                                                                                                              |
-| `/ship`                                        | git-workflow-and-versioning, oc-github, oc-pr-monitor                                                                                                                                                                     |
+The gateways guarantee the core lifecycle and Addy's meta-skill discovers
+contextual workflows. Use every applicable skill when its trigger arises, not
+every skill on every task. This activation matrix covers all 25 vendored Addy
+skills; issue labels strengthen routing but don't override actual task context.
+
+| Trigger                                                       | Skills used                                                                                                                                                         |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every Plan or Build session and every material context change | using-agent-skills + that mode's OC gateway                                                                                                                         |
+| `/plan` or Plan with a new initiative and no approved spec    | interview-me, spec-driven-development (specified automatically; no `/spec` needed)                                                                                  |
+| idea still vague                                              | idea-refine                                                                                                                                                         |
+| approved spec or PRD needing slices                           | planning-and-task-breakdown, oc-github                                                                                                                              |
+| `/spec`                                                       | optional explicit Define-only entry into the Plan gateway                                                                                                           |
+| missing quality bar or pressure to silence/weaken checks      | constraint-driven-development                                                                                                                                       |
+| contracts/interfaces change                                   | api-and-interface-design (Build also gets this for backend/default API work)                                                                                        |
+| official docs needed for a correct approach                   | source-driven-development                                                                                                                                           |
+| architecture decision or durable decision rationale needed    | documentation-and-adrs                                                                                                                                              |
+| `/build` (main checkout)                                      | oc-worktree coordination only; no implementation in main                                                                                                            |
+| `/build #N` (slice) base                                      | incremental-implementation, test-driven-development, context-engineering, git-workflow-and-versioning, oc-sandbox                                                   |
+| label `area:<app>`                                            | the skills mapped in repo `AGENTS.md` front matter; defaults: backend → api-and-interface-design; frontend → frontend-ui-engineering, browser-testing-with-devtools |
+| any `area:<app>`                                              | that app's applicable `.agents/skills/`, registered and attached by oc-skills                                                                                       |
+| migration/retirement or label `area:db`                       | deprecation-and-migration (expand/contract)                                                                                                                         |
+| CI/CD or label `area:infra`                                   | ci-cd-and-automation                                                                                                                                                |
+| risk:security or actual auth/secrets/untrusted-data risk      | security-and-hardening (+ security-auditor for review)                                                                                                              |
+| tests/build break or behavior diverges                        | debugging-and-error-recovery                                                                                                                                        |
+| high-stakes/non-trivial decision or unfamiliar code           | doubt-driven-development                                                                                                                                            |
+| production logging/metrics/tracing/alerting is needed         | observability-and-instrumentation, during implementation                                                                                                            |
+| performance requirement/regression/measured bottleneck        | performance-optimization                                                                                                                                            |
+| `/review`                                                     | code-review-and-quality, code-simplification                                                                                                                        |
+| `/ship` (PR delivery)                                         | git-workflow-and-versioning, oc-github, oc-pr-monitor; never merge                                                                                                  |
+| actual production release/rollout/monitoring/rollback work    | shipping-and-launch; still never deploy/merge autonomously                                                                                                          |
+
+The 25-skill coverage and mode/gateway permission rules are regression-tested;
+skill files and all command references are also checked in CI.
 
 Every skill named here must exist on disk (`skills/addy/` or `skills/oc/`);
 config verification in CI enforces it.

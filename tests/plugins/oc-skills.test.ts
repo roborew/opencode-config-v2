@@ -149,7 +149,7 @@ describe("readSliceRecord / readFrontMatter", () => {
     tmpDirs.push(repo)
     execSync("git init -q -b main", { cwd: repo })
     writeFileSync(join(repo, "f.txt"), "x\n")
-    execSync("git add -A && git -c user.name=t -c user.email=t@t commit -qm init", { cwd: repo })
+    execSync("git add -A && git -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -qm init", { cwd: repo })
     const worktree = join(repo, "..", "wt-test")
     execSync(`git worktree add -b slice/7-demo ${JSON.stringify(worktree)} main`, { cwd: repo })
     tmpDirs.push(worktree)

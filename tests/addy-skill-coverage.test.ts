@@ -1,10 +1,38 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { parse } from "jsonc-parser"
+import { parse, type ParseError } from "jsonc-parser"
 import { describe, expect, it } from "vitest"
 
-const config = parse(readFileSync("opencode.jsonc", "utf8")) as {
+type Config = {
   agents?: Record<string, { permissions?: { action: string; resource: string; effect: string }[] }>
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function parseConfig(text: string): Config {
+  const errors: ParseError[] = []
+  const value = parse(text, errors) as unknown
+  if (errors.length > 0) throw new Error(`opencode.jsonc is malformed: ${errors.length} parse error(s)`)
+  if (!isRecord(value)) throw new Error("opencode.jsonc must be an object")
+  const agents = value.agents
+  if (agents === undefined) return value as Config
+  if (!isRecord(agents)) throw new Error("opencode.jsonc agents must be an object")
+  for (const [id, definition] of Object.entries(agents)) {
+    if (!isRecord(definition)) throw new Error(`agent '${id}' must be an object`)
+    if (definition.permissions === undefined) continue
+    if (!Array.isArray(definition.permissions)) throw new Error(`agent '${id}' permissions must be an array`)
+    for (const rule of definition.permissions) {
+      if (!isRecord(rule)) throw new Error(`agent '${id}' permission rules must be objects`)
+      for (const field of ["action", "resource", "effect"]) {
+        if (typeof rule[field] !== "string") throw new Error(`agent '${id}' permission '${field}' must be a string`)
+      }
+    }
+  }
+  return value as Config
+}
+
+const config = parseConfig(readFileSync("opencode.jsonc", "utf8"))
 
 function allowedSkills(agent: string): Set<string> {
   return new Set(
@@ -29,6 +57,17 @@ const routingContract = [
 const addySkills = readdirSync("skills/addy", { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(`skills/addy/${entry.name}/SKILL.md`))
   .map((entry) => entry.name)
+
+describe("strict config parsing", () => {
+  it("rejects malformed JSONC before using its partial object", () => {
+    expect(() => parseConfig('{"agents":{}} trailing-garbage')).toThrow("malformed")
+  })
+
+  it("validates agent permission structure", () => {
+    expect(() => parseConfig('{"agents":{"build":{"permissions":"allow all"}}}')).toThrow("permissions must be an array")
+    expect(() => parseConfig('{"agents":{"build":{"permissions":[{"action":"skill"}]}}}')).toThrow("'resource' must be a string")
+  })
+})
 
 describe("vendored Addy skill coverage", () => {
   it("still vendors the complete upstream set", () => {

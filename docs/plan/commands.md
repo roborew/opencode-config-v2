@@ -51,7 +51,7 @@ description: Build — explicit entry to coordinate slices (main checkout) or bu
 agent: build
 ---
 
-@using-agent-skills @oc-build-gateway @oc-worktree
+@using-agent-skills @oc-build-gateway @oc-worktree @oc-github
 
 Arguments: $ARGUMENTS
 

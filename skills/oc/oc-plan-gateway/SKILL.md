@@ -5,7 +5,7 @@ description: Always-on Plan gateway for the OpenCode delivery flow. Routes new w
 
 # Plan gateway — Define + Plan
 
-`using-agent-skills`, this gateway, `interview-me`, `spec-driven-development`, `planning-and-task-breakdown`, and `oc-github` are attached automatically. Apply the meta-skill when work starts and whenever context changes: it discovers conditional Addy workflows, while the attached core workflows make Define → Plan non-optional.
+Only `using-agent-skills` and this slim gateway are attached on every prompt. This prevents unconditional context bloat while preserving the gateway in command-free sessions. Apply the meta-skill when work starts and whenever context changes; load each full core workflow when its phase begins, using the permitted skill tool or the corresponding command's attachments.
 
 ## Route the request first
 
@@ -20,7 +20,7 @@ Never write app code or require a switch to Build for spec files, decisions, spe
 
 ## 1. Define when no approved spec exists
 
-Follow `spec-driven-development`. Before drafting, use `interview-me` until objective, users, acceptance criteria, constraints, and boundaries are clear. `using-agent-skills` selects these contextual overlays:
+At the start of this phase, load `interview-me` and `spec-driven-development` (already attached by `/plan` and `/spec`). Follow the specification workflow. Before drafting, use the interview workflow until objective, users, acceptance criteria, constraints, and boundaries are clear. `using-agent-skills` selects these contextual overlays:
 
 | Context                                                                      | Addy workflow                   |
 | ---------------------------------------------------------------------------- | ------------------------------- |
@@ -40,7 +40,7 @@ Then continue to vertical slicing in this later, post-approval turn. Do not crea
 
 ## 2. Plan vertical slices
 
-Follow `planning-and-task-breakdown`, with these OC output conventions replacing the generic file defaults:
+Before slicing, load `planning-and-task-breakdown` and `oc-github` (already attached by `/plan`). Follow the planning workflow, with these OC output conventions replacing the generic file defaults:
 
 - The plan record is the approved spec, PRD, and linked GitHub slice issues. **Do not create `tasks/plan.md` or `tasks/todo.md`.**
 - Drafting is read-only: do not edit app files or create issues before the breakdown is approved. This does not prohibit the Define outputs above or the post-approval issue creation below.

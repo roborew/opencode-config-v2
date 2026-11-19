@@ -223,10 +223,10 @@ Three loading mechanisms complement one another:
    `ctx.session.hook("prompt", …)` and reads `session.agent` through
    `ctx.session.get`. On every admitted Plan or Build prompt it attaches
    `using-agent-skills` plus `oc-plan-gateway` or `oc-build-gateway`, whether the
-   request came through bare mode selection or a command. Bare Plan also receives
-   interview/spec/planning/GitHub; bare Build receives worktree/GitHub; slice
-   workers additionally receive their base plus review/simplification/PR monitor,
-   so no core workflow merely references an unavailable skill. When an older session
+   request came through bare mode selection or a command. These two slim skills
+   stay unconditional; full phase workflows are invoked by the gateway through the
+   permitted skill tool or named by its commands, avoiding large unconditional
+   contexts. When an older session
    has no agent field, the configured default `build` applies. Routing/session
    failures reject admission rather than silently admitting work without its
    required gateway.
@@ -239,8 +239,8 @@ Three loading mechanisms complement one another:
 3. **Slice overlays.** In a slice worktree (`oc-slice.json`, written by
    `oc-worktree`), the same prompt hook composes the Build gateway + base skills
    - labels/front-matter/area skills. Base includes incremental implementation,
-     context engineering, TDD, git workflow, `oc-sandbox`, review/simplification
-     and `oc-pr-monitor`. oc-skills also
+     context engineering, TDD, git workflow and `oc-sandbox`; review/simplification
+     and PR-monitor workflows load at their phases through gateway/commands. oc-skills also
      registers and permits app-scoped skills dynamically because an ID missing from
      the registry fails admission ("Skill not found").
 

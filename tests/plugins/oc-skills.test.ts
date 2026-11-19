@@ -85,7 +85,14 @@ describe("parseApps", () => {
 })
 
 describe("skillsForSlice", () => {
-  it("always includes the base skills", () => {
+  it("pins the required slice base skill set", () => {
+    expect(BASE_SKILLS).toEqual([
+      "incremental-implementation",
+      "test-driven-development",
+      "context-engineering",
+      "git-workflow-and-versioning",
+      "oc-sandbox",
+    ])
     expect(skillsForSlice({ issue: 7, labels: [] }, FRONT_MATTER, "/tmp")).toEqual([...BASE_SKILLS])
   })
 

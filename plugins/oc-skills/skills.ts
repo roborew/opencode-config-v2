@@ -16,15 +16,8 @@ import { join } from "node:path"
 
 /** Always loaded for a primary session, including sessions started without a command. */
 export const PRIMARY_SKILLS = {
-  plan: [
-    "using-agent-skills",
-    "oc-plan-gateway",
-    "interview-me",
-    "spec-driven-development",
-    "planning-and-task-breakdown",
-    "oc-github",
-  ],
-  build: ["using-agent-skills", "oc-build-gateway", "oc-worktree", "oc-github"],
+  plan: ["using-agent-skills", "oc-plan-gateway"],
+  build: ["using-agent-skills", "oc-build-gateway"],
 } as const
 
 export const BASE_SKILLS = [
@@ -33,9 +26,6 @@ export const BASE_SKILLS = [
   "context-engineering",
   "git-workflow-and-versioning",
   "oc-sandbox",
-  "code-review-and-quality",
-  "code-simplification",
-  "oc-pr-monitor",
 ]
 
 const LABEL_SKILLS: Record<string, string[]> = {

@@ -5,13 +5,13 @@ description: Always-on Build gateway for the OpenCode delivery flow. Routes cent
 
 # Build gateway — Build → Verify → Review → Ship
 
-`using-agent-skills`, this gateway, `oc-worktree`, and `oc-github` are attached automatically. Apply the meta-skill at session start and whenever context changes: implementation begins, an error occurs, a technical decision arises, review starts, or release readiness is requested. This gateway fixes the core route; the meta-skill discovers contextual workflows rather than letting them be forgotten.
+Only `using-agent-skills` and this slim gateway are attached on every prompt, avoiding unconditional context bloat. Load integration and full lifecycle workflows when their phase begins, using the permitted skill tool or the corresponding command's attachments. Apply the meta-skill at session start and whenever context changes: implementation begins, an error occurs, a technical decision arises, review starts, or release readiness is requested.
 
 ## Route by session context
 
 ### Main checkout
 
-Act as Robin's persistent build coordinator; **never implement here**. `/build` and bare Build execute this same algorithm, using `oc-worktree` and `oc-github`; neither creates an implementation branch in main. An unapproved idea or spec gap belongs back in Plan.
+Act as Robin's persistent build coordinator; **never implement here**. Before coordinating, load `oc-worktree` and `oc-github` (attached explicitly by `/build` or through the permitted skill tool in bare Build). Both entry modes execute this same algorithm; neither creates an implementation branch in main. An unapproved idea or spec gap belongs back in Plan.
 
 On each coordinator run:
 
@@ -31,7 +31,7 @@ Implement exactly one approved issue through every applicable layer, skipping on
 
 For each acceptance criterion prove RED with a test-only commit and a failing focused sandbox run, then make the minimum code change and prove GREEN. Never weaken, skip, or delete tests to make them pass, never hand-edit declared generated files, and never run tests or Docker directly on the host.
 
-When green, follow `code-review-and-quality` and `code-simplification`, always running the `code-reviewer` subagent. Use `security-and-hardening` and `security-auditor` for `risk:security` or risky changes. Resolve or answer every finding, rerun `sandbox_gate`, verify `redgreen_check`, then use `git-workflow-and-versioning`, `oc-github`, and `oc-pr-monitor` to push and monitor one PR. Continue this existing workflow without requiring Robin to name `/review`, `/ship`, TDD, or area skills.
+When green, load and follow `code-review-and-quality` and `code-simplification` (attached by `/review` when used), always running the `code-reviewer` subagent. After verification, load `oc-pr-monitor` with the normal PR handoff (attached by `/ship` when used). Use `security-and-hardening` and `security-auditor` for `risk:security` or risky changes. Resolve or answer every finding, rerun `sandbox_gate`, verify `redgreen_check`, then use `git-workflow-and-versioning`, `oc-github`, and the loaded PR monitor to push and monitor one PR. Continue this existing workflow without requiring Robin to name `/review`, `/ship`, TDD, or area skills.
 
 ### No approved slice in the current context
 

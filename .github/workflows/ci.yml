@@ -123,6 +123,9 @@ jobs:
           const section3 = blueprint.split(/^## /m).find((s) => s.startsWith("3. "))
           if (section3 === undefined) fail("docs/plan/blueprint.md has no §3 section to read the model roster from")
           for (const m of (section3 ?? "").matchAll(/`(opencode(?:-go)?\/[a-z0-9][a-z0-9.\-]*)`/g)) roster.add(m[1])
+          if (section3 !== undefined && roster.size === 0) {
+            fail("docs/plan/blueprint.md §3 lists no model IDs to build the roster from")
+          }
           const modelOk = (m, where) => {
             if (typeof m !== "string" || !/^opencode(?:-go)?\//.test(m)) {
               fail(`${where}: model '${m}' is not on the opencode/opencode-go providers`)

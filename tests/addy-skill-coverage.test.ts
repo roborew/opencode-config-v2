@@ -77,7 +77,7 @@ describe("gateway lifecycle invariants", () => {
 
   it("keeps the full coordinator algorithm available in bare Build", () => {
     const buildGateway = readFileSync("skills/oc/oc-build-gateway/SKILL.md", "utf8")
-    expect(buildGateway).toContain("`/build` and bare Build execute this same algorithm")
+    expect(buildGateway).toContain("Both entry modes execute this same algorithm")
     expect(buildGateway).toContain("status:cleanup-pending")
     expect(buildGateway).toContain("Reconcile verified merges")
     expect(buildGateway).toContain("Synchronize every active slice")

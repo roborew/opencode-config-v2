@@ -163,6 +163,24 @@ jobs:
           if [ "$bad" -ne 0 ]; then exit 1; fi
           echo "ok: every skills/addy/ commit carries an Addy-Sync trailer"
 
+  typecheck:
+    name: Type checking
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: package.json
+      - name: Install and run TypeScript checking
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run typecheck
+
   plugin-tests:
     name: Plugin tests
     runs-on: ubuntu-latest

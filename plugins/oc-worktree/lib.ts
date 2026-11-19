@@ -116,7 +116,7 @@ export function envFilesToCopy(source: string): string[] {
   return readdirSync(source).filter((f) => f.startsWith(".env") && f !== ".env.example")
 }
 
-export interface SliceRecord {
+export type SliceRecord = {
   issue: number
   title: string
   labels: string[]

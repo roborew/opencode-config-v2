@@ -433,10 +433,11 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 1. Validate `opencode.jsonc` against `https://opencode.ai/config.json`.
 2. Check that every skill named in §6, in the permissions and in the command templates exists on disk.
 3. Check that `skills/addy/` matches `UPSTREAM.md`: it was changed only by an `addy-sync` commit, with a `Addy-Sync: <sha>` trailer.
-4. Run the plugin tests (`tests/plugins`).
-5. Run gitleaks and zizmor, with pinned action SHAs.
-6. Enforce LF line endings for `*.sh`, `*.ts` and `*.md`.
-7. Check the model allow-list: every model ID referenced in `opencode.jsonc` and `agents/` uses the `opencode` or `opencode-go` provider and matches the roster in §3.
+4. Run `npm run typecheck` with the strict compiler, unused-local and unused-parameter checks in `tsconfig.json`.
+5. Run the plugin tests (`tests/plugins`).
+6. Run gitleaks and zizmor, with pinned action SHAs.
+7. Enforce LF line endings for `*.sh`, `*.ts` and `*.md`.
+8. Check the model allow-list: every model ID referenced in `opencode.jsonc` and `agents/` uses the `opencode` or `opencode-go` provider and matches the roster in §3.
 
 ## 14. Lessons built in from earlier setups
 

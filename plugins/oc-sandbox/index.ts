@@ -7,7 +7,6 @@ import {
   type CommitInfo,
   type EvidenceRecord,
   type Sidecar,
-  type TestContract,
   buildDownArgv,
   buildTestArgv,
   buildWarmArgv,
@@ -33,7 +32,7 @@ import {
  * worktree) from its sessionID before doing anything.
  */
 
-interface SandboxState {
+type SandboxState = {
   id: string
   backend: Backend
   sidecar?: Sidecar

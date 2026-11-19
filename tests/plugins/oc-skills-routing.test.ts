@@ -51,6 +51,10 @@ describe("oc-skills primary prompt admission", () => {
       "already-attached",
       "using-agent-skills",
       "oc-plan-gateway",
+      "interview-me",
+      "spec-driven-development",
+      "planning-and-task-breakdown",
+      "oc-github",
     ])
   })
 
@@ -63,6 +67,8 @@ describe("oc-skills primary prompt admission", () => {
     expect(event.prompt.skills.map((skill: { id: string }) => skill.id)).toEqual([
       "using-agent-skills",
       "oc-build-gateway",
+      "oc-worktree",
+      "oc-github",
     ])
   })
 

@@ -10,6 +10,6 @@ Work or PRD: $ARGUMENTS (an idea, change, spec path, or issue number; a PRD is n
 Follow `oc-plan-gateway` as the canonical workflow.
 
 - A new idea or significant change without an approved spec starts **Define** automatically. Do not ask the user to invoke `/spec` and do not jump straight to slicing.
-- An approved spec/PRD without an approved breakdown resumes at **Plan slices**.
+- An approved spec, or a PRD with verified linked-spec approval, resumes at **Plan slices**. An existing PRD without verified spec approval stays in Define.
 - The spec must be written under `docs/spec/**` before its approval gate. Plan owns the spec branch/PR and PRD after approval, then the numbered-breakdown gate and GitHub slice issues. Do not hand these writes or GitHub operations to Build.
-- Before breakdown approval, research and drafting only: do not edit repo files or create issues. After approval, create the slice issues. The plan record is the spec + PRD + linked issues, not `tasks/plan.md` or `tasks/todo.md`.
+- The plan record is the spec + PRD + linked issues, not `tasks/plan.md` or `tasks/todo.md`. Only **slice drafting** is read-only: do not edit app implementation or create slice issues before the numbered breakdown is approved. This does not prohibit Define's required spec writes or, after spec approval, the spec branch/PR and PRD.

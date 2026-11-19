@@ -18,8 +18,8 @@ between worktrees.
 2. **Continue in Plan after spec approval** — it proposes vertical slices through
    every applicable layer, skipping layers the repo does not have, then shows you
    the numbered breakdown. On this second explicit approval, it creates sub-issues
-   with `area:*` labels, blockers and `status:ready`. An existing approved PRD can
-   also be passed as `/plan <PRD>` to resume here. Plan owns all these outputs;
+   with `area:*` labels, blockers and `status:ready`. A PRD with verified linked-spec
+   approval can also be passed as `/plan <PRD>` to resume here. Plan owns these outputs;
    switching to Build is not needed for file writes or GitHub issue creation.
 3. **Switch to Build** — this central session is now your persistent build
    coordinator. It starts up to 3 unblocked slices. Each gets a worktree off

@@ -5,14 +5,14 @@ description: Always-on Plan gateway for the OpenCode delivery flow. Routes new w
 
 # Plan gateway — Define + Plan
 
-`using-agent-skills` is attached alongside this gateway. Apply it when work starts and whenever the context changes: it discovers conditional Addy workflows, while this gateway makes the core Define → Plan sequence non-optional.
+`using-agent-skills`, this gateway, `interview-me`, `spec-driven-development`, `planning-and-task-breakdown`, and `oc-github` are attached automatically. Apply the meta-skill when work starts and whenever context changes: it discovers conditional Addy workflows, while the attached core workflows make Define → Plan non-optional.
 
 ## Route the request first
 
 Use read-only `explore`/`general` research to locate the current spec, PRD, decisions, and relevant code.
 
 - **No approved spec for a new project, feature, significant change, or delta:** start **Define**, even when the user invoked `/plan` or merely selected Plan. Never ask Robin to invoke `/spec` separately.
-- **Approved spec or existing PRD without an approved slice breakdown:** resume at **Plan slices**.
+- **Approved spec, or PRD verifiably linked to an approved spec, without an approved slice breakdown:** resume at **Plan slices**. If an existing PRD cannot prove that its spec was approved, stay in Define and establish the spec/approval before any slicing.
 - **Approved slice breakdown:** report the ready handoff; dismantling or replanning it needs an explicit request.
 - **Small planning question:** answer directly without manufacturing a lifecycle. When uncertain whether a change is significant, ask rather than silently skipping the spec.
 

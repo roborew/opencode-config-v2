@@ -61,3 +61,26 @@ describe("vendored Addy skill coverage", () => {
     expect(build).toContain("shipping-and-launch")
   })
 })
+
+describe("gateway lifecycle invariants", () => {
+  it("does not let an existing PRD bypass linked-spec approval", () => {
+    const planGateway = readFileSync("skills/oc/oc-plan-gateway/SKILL.md", "utf8")
+    expect(planGateway).toContain("PRD verifiably linked to an approved spec")
+    expect(planGateway).toContain("cannot prove that its spec was approved")
+  })
+
+  it("limits Plan read-only drafting without prohibiting required Define outputs", () => {
+    const command = readFileSync("commands/plan.md", "utf8")
+    expect(command).toContain("Only **slice drafting** is read-only")
+    expect(command).toContain("does not prohibit Define's required spec writes")
+  })
+
+  it("keeps the full coordinator algorithm available in bare Build", () => {
+    const buildGateway = readFileSync("skills/oc/oc-build-gateway/SKILL.md", "utf8")
+    expect(buildGateway).toContain("`/build` and bare Build execute this same algorithm")
+    expect(buildGateway).toContain("status:cleanup-pending")
+    expect(buildGateway).toContain("Reconcile verified merges")
+    expect(buildGateway).toContain("Synchronize every active slice")
+    expect(buildGateway).toContain("Recover and dispatch")
+  })
+})

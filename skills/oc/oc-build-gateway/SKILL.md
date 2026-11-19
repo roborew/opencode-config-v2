@@ -5,17 +5,25 @@ description: Always-on Build gateway for the OpenCode delivery flow. Routes cent
 
 # Build gateway — Build → Verify → Review → Ship
 
-`using-agent-skills` is attached alongside this gateway. Apply it at session start and whenever the context changes: implementation begins, an error occurs, a new technical decision arises, review starts, or release readiness is requested. This gateway fixes the core route; the meta-skill discovers contextual workflows rather than letting them be forgotten.
+`using-agent-skills`, this gateway, `oc-worktree`, and `oc-github` are attached automatically. Apply the meta-skill at session start and whenever context changes: implementation begins, an error occurs, a technical decision arises, review starts, or release readiness is requested. This gateway fixes the core route; the meta-skill discovers contextual workflows rather than letting them be forgotten.
 
 ## Route by session context
 
 ### Main checkout
 
-Act as Robin's persistent build coordinator; **never implement here**. Follow `oc-worktree` and `oc-github` to reconcile verified merges, synchronize active slices, route feedback to existing workers, close completed issues/PRDs, and start ready unblocked slices within the slot limit.
+Act as Robin's persistent build coordinator; **never implement here**. `/build` and bare Build execute this same algorithm, using `oc-worktree` and `oc-github`; neither creates an implementation branch in main. An unapproved idea or spec gap belongs back in Plan.
 
-- `/build` executes this coordinator workflow directly; merely selecting Build does not create a substitute implementation branch in main.
-- An unapproved idea or spec gap belongs back in Plan. Do not invent requirements or bypass the approved slices by coding locally.
-- Preserve existing worker sessions, worktrees, branches, and PRs during feedback/resume/recovery. Robin merges; agents never merge.
+On each coordinator run:
+
+1. **Recover cleanup obligations before dispatch.** List every `status:cleanup-pending` issue, close its slice only when appropriate, close its PRD only when no slice sub-issues remain open, then remove the label. Retry failures on the next coordinator run.
+2. **Reconcile verified merges.** For Robin-named merges and every active slice whose PR GitHub reports MERGED, call `slice_finish`. Issue closure depends on the verified merge, not cleanup success. If cleanup is refused because the worktree is dirty or has unpushed work, preserve it and the local edits, report the retained slot/refusal, and never claim cleanup completed. Verify `Closes #N` closed the slice; only after verified merge may an open slice be closed explicitly. Never close an unmerged slice.
+3. **Synchronize every active slice.** Call `slice_sync` on each coordinator run so pending merges of `origin/main` into building/in-review slices are retried. Wake in-review workers to push updates; defer READY until the push lands. Report conflicts as BLOCKED and never force them.
+4. **Close finished PRDs.** Gather distinct PRD parents of merged slices and close those with no open slice issues, leaving the rest open.
+5. **Recover and dispatch.** Identify the PRD from session context, asking only if ambiguous. Call `slice_status`; retry `slice_start` for existing records with no worker session. List its open `status:ready` slices whose blockers are closed, excluding issues with worker-backed records or active records whose `ready` means READY for Robin's review. Call `slice_start` for remaining slices up to the slot limit. Report what finished, cleanup in progress, workers started, and what is READY/BLOCKED.
+
+When Robin reports a merge, reconcile before starting more work. For PR feedback, resolve the PR to exactly one active slice using `gh pr view <PR> --json closingIssuesReferences,headRefName`, matching its record by head branch or linked issue; ask rather than guessed routing on ambiguity. After verifying the active slice, call `slice_message({ issue, text })` only while its PR is OPEN. Use `slice_resume({ issue })` for a BLOCKED slice without an open PR after the blocker is resolved. Preserve the existing worker session, worktree, branch, and PR; never fix centrally or create replacements.
+
+Surface READY, BLOCKED, and MERGED notifications to Robin concisely. READY requests Robin's review/testing; MERGED waits for the user's reconciliation instruction. Robin merges; agents never merge.
 
 ### Slice worktree with a slice record
 

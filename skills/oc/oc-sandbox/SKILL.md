@@ -25,6 +25,21 @@ is detected automatically; `OC_SANDBOX_BACKEND` overrides it.
    preceding failing test-only commit. Declared generated files count as neither.
 5. `sandbox_down({ slice })` when the slice ends.
 
+## First-time repo onboarding
+
+A repo that has not been onboarded has no `compose.yml` and no `AGENTS.md`
+test front matter yet. Its onboarding slice still follows the loop: commit the
+onboarding tests test-only, then run `sandbox_test` — it returns
+`RED (bootstrap)` without invoking Docker and records failing evidence
+against the commit SHA, because the missing initial contract is the failure.
+The implementation commit then adds `compose.yml` and the `AGENTS.md` test
+front matter; re-run `sandbox_test` on the real contract for GREEN. This is
+the only case where a missing contract becomes evidence: a declared but
+empty or malformed contract is a fail-closed BLOCKED, and `sandbox_up` /
+`sandbox_gate` always refuse a missing contract (the gate also refuses a
+contract that declares no steps). A bootstrap record is failing evidence
+only — it can never satisfy a GREEN requirement.
+
 ## Reading results
 
 - `sandbox_test` returns GREEN/RED with the exit code, the commit SHA it recorded

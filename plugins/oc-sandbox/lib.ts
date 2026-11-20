@@ -203,6 +203,96 @@ export type EvidenceRecord = {
   passed: boolean
   exitCode: number
   at: number
+  /** set by sandbox_test's bootstrap path: the failure is the missing initial test contract itself (ADR 0013) */
+  bootstrap?: boolean
+}
+
+// ---------------------------------------------------------------- bootstrap
+
+/**
+ * Why a sandbox run could not start (ensureUp's blocked reasons). Structured so
+ * sandbox_test decides — by reason, never by matching message text — which
+ * blocked conditions may convert into bootstrap RED evidence (ADR 0013).
+ */
+export type EnsureReason =
+  | "missing-compose"
+  | "missing-front-matter"
+  | "declared-empty-contract"
+  | "backend-unavailable"
+  | "mountpoint-preflight"
+  | "sidecar-failed"
+  | "compose-build-failed"
+  | "warmup-failed"
+
+export type ContractAssessment = "missing-compose" | "missing-front-matter" | "declared-empty" | "ok"
+
+/**
+ * The state of a worktree's initial test contract (§9.2): the root compose.yml
+ * first, then the AGENTS.md front-matter block, then whether the declared
+ * contract has any usable step. "declared-empty" means the repo attempted a
+ * contract that declares nothing usable — a fail-closed error, never bootstrap.
+ */
+export function assessContract(worktree: string, frontMatter: string): ContractAssessment {
+  if (!existsSync(join(worktree, "compose.yml"))) return "missing-compose"
+  if (!frontMatter) return "missing-front-matter"
+  const contract = parseTestContract(frontMatter)
+  const testServices = Object.keys(contract.services).filter((key) => key !== "e2e" && key !== "smoke")
+  if (testServices.length === 0 && !contract.generatorService && !contract.services.smoke) return "declared-empty"
+  return "ok"
+}
+
+/**
+ * Only a missing *initial* contract is bootstrap-eligible (ADR 0013): the repo
+ * has not been onboarded yet, so the missing contract is itself the failure a
+ * test-only commit can record. A declared-but-empty or malformed contract never
+ * is — the repo attempted a contract, so that fails closed.
+ */
+export function isBootstrapReason(reason: EnsureReason): boolean {
+  return reason === "missing-compose" || reason === "missing-front-matter"
+}
+
+/**
+ * The steps sandbox_gate would run for a contract: every non-e2e/smoke service,
+ * the generation drift check when a generator service is declared, and the
+ * full-profile up + smoke when a smoke service is declared. A contract that
+ * declares none of these gets a refusal — zero steps can never print PASSED,
+ * and the parser's default fallback (services: {}) is never a valid contract.
+ */
+export function planGateSteps(contract: TestContract): { steps: string[] } | { refusal: string } {
+  const steps: string[] = []
+  for (const [key, service] of Object.entries(contract.services)) {
+    if (key === "e2e" || key === "smoke") continue
+    steps.push(`test service ${service}`)
+  }
+  if (contract.generatorService) steps.push("generation drift check")
+  if (contract.services.smoke) {
+    steps.push("full profile up (production images)")
+    steps.push(`smoke check (${contract.services.smoke})`)
+  }
+  return steps.length > 0
+    ? { steps }
+    : {
+      refusal:
+        "the contract declares no meaningful steps — no test services, no generator, no smoke; the repo's test contract is missing or empty",
+    }
+}
+
+/**
+ * Failed evidence for the missing initial test contract itself (ADR 0013):
+ * recorded by sandbox_test without invoking Docker or any backend. Always
+ * passed: false, so it satisfies only a test-only commit's RED requirement and
+ * never a GREEN one.
+ */
+export function bootstrapEvidence(input: { sha: string; service: string; args: string[]; at: number }): EvidenceRecord {
+  return {
+    sha: input.sha,
+    service: input.service,
+    args: input.args,
+    passed: false,
+    exitCode: 1,
+    at: input.at,
+    bootstrap: true,
+  }
 }
 
 // ---------------------------------------------------------------- red / green

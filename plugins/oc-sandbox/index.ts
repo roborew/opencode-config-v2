@@ -5,13 +5,18 @@ import { join } from "node:path"
 import {
   type Backend,
   type CommitInfo,
+  type EnsureReason,
   type EvidenceRecord,
   type Sidecar,
+  assessContract,
+  bootstrapEvidence,
   buildDownArgv,
   buildTestArgv,
   buildWarmArgv,
   envSecrets,
+  isBootstrapReason,
   parseTestContract,
+  planGateSteps,
   prepareMountpoints,
   readFrontMatter,
   redactTail,
@@ -171,21 +176,41 @@ export default Plugin.define({
 
     const ensureUp = async (
       worktree: string,
-    ): Promise<{ ok: true; state: SandboxState } | { ok: false; blocked: string }> => {
+    ): Promise<{ ok: true; state: SandboxState } | { ok: false; blocked: string; reason: EnsureReason }> => {
       const sliceKey = sliceKeyOf(worktree)
       const id = sandboxId(sliceKey, worktree)
       const stateKey = `sandboxes/${sliceKey}`
       const existing = (await ctx.storage.get(stateKey)) as SandboxState | undefined
       if (existing) return { ok: true, state: existing }
 
-      const contract = parseTestContract(readFrontMatter(worktree))
-      if (!existsSync(join(worktree, contract.composeFile))) {
-        return { ok: false, blocked: `no ${contract.composeFile} in ${worktree} — the repo's test contract is missing` }
+      const frontMatter = readFrontMatter(worktree)
+      const assessment = assessContract(worktree, frontMatter)
+      if (assessment === "missing-compose") {
+        return {
+          ok: false,
+          blocked: `no compose.yml in ${worktree} — the repo's test contract is missing`,
+          reason: "missing-compose",
+        }
       }
+      if (assessment === "missing-front-matter") {
+        return {
+          ok: false,
+          blocked: `no AGENTS.md test front matter in ${worktree} — the repo's test contract is missing`,
+          reason: "missing-front-matter",
+        }
+      }
+      if (assessment === "declared-empty") {
+        return {
+          ok: false,
+          blocked: `the AGENTS.md test contract in ${worktree} declares nothing usable (no test services, no generator, no smoke) — fix the contract`,
+          reason: "declared-empty-contract",
+        }
+      }
+      const contract = parseTestContract(frontMatter)
       const choice = await selectBackend(ctx.options as Record<string, string | undefined>, process.env)
-      if ("blocked" in choice) return { ok: false, blocked: choice.blocked }
+      if ("blocked" in choice) return { ok: false, blocked: choice.blocked, reason: "backend-unavailable" }
       const mountpoints = await mountpointPreflight(worktree, contract, id, choice.backend)
-      if (mountpoints) return { ok: false, blocked: mountpoints }
+      if (mountpoints) return { ok: false, blocked: mountpoints, reason: "mountpoint-preflight" }
       const state: SandboxState = { id, backend: choice.backend, sidecar: choice.sidecar, createdAt: Date.now() }
 
       if (choice.backend === "sysbox" && choice.sidecar) {
@@ -194,15 +219,18 @@ export default Plugin.define({
           headers: { authorization: `Bearer ${choice.sidecar.token}`, "content-type": "application/json" },
           body: JSON.stringify({ id, worktree }),
         })
-        if (!res.ok) return { ok: false, blocked: `sidecar refused to create sandbox ${id} (${res.status})` }
+        if (!res.ok)
+          return { ok: false, blocked: `sidecar refused to create sandbox ${id} (${res.status})`, reason: "sidecar-failed" }
       }
 
       const warm = buildWarmArgv(contract, id)
       const secrets = envSecrets(worktree)
       const build = await runArgv(state, warm.build, worktree, 30 * 60_000)
-      if (build.exitCode !== 0) return { ok: false, blocked: `compose build failed:\n${redactTail(build.output, 50, secrets)}` }
+      if (build.exitCode !== 0)
+        return { ok: false, blocked: `compose build failed:\n${redactTail(build.output, 50, secrets)}`, reason: "compose-build-failed" }
       const up = await runArgv(state, warm.up, worktree, 10 * 60_000)
-      if (up.exitCode !== 0) return { ok: false, blocked: `sandbox warm-up failed:\n${redactTail(up.output, 50, secrets)}` }
+      if (up.exitCode !== 0)
+        return { ok: false, blocked: `sandbox warm-up failed:\n${redactTail(up.output, 50, secrets)}`, reason: "warmup-failed" }
       await ctx.storage.set(stateKey, state)
       return { ok: true, state }
     }
@@ -267,11 +295,36 @@ export default Plugin.define({
         async (input: { slice: string; service?: string; args?: string[] }, context) => {
           const wt = await sessionDir(context.sessionID)
           const up = await ensureUp(wt)
-          if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          if (!up.ok) {
+            // Only the missing *initial* contract converts into recorded RED
+            // evidence (ADR 0013); every other blocked condition records nothing.
+            if (isBootstrapReason(up.reason)) {
+              const service = input.service ?? "bootstrap"
+              const args = input.args ?? []
+              const sha = gitIn(wt, "rev-parse HEAD")
+              await recordEvidence(bootstrapEvidence({ sha, service, args, at: Date.now() }))
+              return {
+                content:
+                  `RED (bootstrap): no test contract in ${wt} — the missing initial contract is the failure. ` +
+                  `Evidence recorded against sha=${sha.slice(0, 12)}. ` +
+                  "Add the contract (compose.yml + AGENTS.md test front matter) in the implementation commit, then re-run for GREEN.",
+              }
+            }
+            return { content: `BLOCKED: ${up.blocked}` }
+          }
           const contract = parseTestContract(readFrontMatter(wt))
+          const service = input.service ?? contract.services.all ?? "test"
+          const declared = new Set(Object.values(contract.services))
+          if (contract.generatorService) declared.add(contract.generatorService)
+          if (!declared.has(service)) {
+            return {
+              content:
+                `BLOCKED: service '${service}' is not declared in the AGENTS.md test contract — ` +
+                "a caller error is not a test failure; nothing was recorded.",
+            }
+          }
           const mountpoints = await mountpointPreflight(wt, contract, up.state.id, up.state.backend)
           if (mountpoints) return { content: `BLOCKED: ${mountpoints}` }
-          const service = input.service ?? contract.services.all ?? "test"
           const argv = buildTestArgv(contract, up.state.id, service, input.args ?? [])
           const run = await runArgv(up.state, argv, wt)
           const sha = gitIn(wt, "rev-parse HEAD")
@@ -294,6 +347,8 @@ export default Plugin.define({
           const up = await ensureUp(wt)
           if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
           const contract = parseTestContract(readFrontMatter(wt))
+          const plan = planGateSteps(contract)
+          if ("refusal" in plan) return { content: `sandbox_gate REFUSED: ${plan.refusal}` }
           const steps: { step: string; passed: boolean; detail?: string }[] = []
           const secrets = envSecrets(wt)
           // the model is re-validated before each container-creating step:

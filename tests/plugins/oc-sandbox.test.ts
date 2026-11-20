@@ -1,11 +1,14 @@
 import { execSync, spawn, spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
-import { afterAll, describe, expect, it } from "vitest"
+import { dirname, join, resolve } from "node:path"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import {
   type ComposeModel,
+  type EnsureReason,
   type PlannedMountpoint,
+  assessContract,
+  bootstrapEvidence,
   buildComposeConfigArgv,
   buildDownArgv,
   buildProfileListArgv,
@@ -14,16 +17,20 @@ import {
   classifyCommit,
   envSecrets,
   globMatch,
+  isBootstrapReason,
   materializeMountpoints,
   parseTestContract,
+  planGateSteps,
   planMountpoints,
   prepareMountpoints,
+  readFrontMatter,
   redactTail,
   redgreenCheck,
   runComposeLocal,
   sandboxId,
   selectBackend,
 } from "../../plugins/oc-sandbox/lib"
+import sandboxPlugin from "../../plugins/oc-sandbox/index"
 
 const FRONT_MATTER = `
 apps:
@@ -197,6 +204,151 @@ describe("red/green classification and check", () => {
   })
 })
 
+describe("bootstrap: contract assessment", () => {
+  it("missing root compose.yml -> missing-compose", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("missing-compose")
+  })
+
+  it("compose.yml present but AGENTS.md absent -> missing-front-matter", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("missing-front-matter")
+  })
+
+  it("AGENTS.md present without a front-matter block -> missing-front-matter", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    writeFileSync(join(dir, "AGENTS.md"), "# AGENTS.md\n\nInstructions only, no front matter.\n")
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("missing-front-matter")
+  })
+
+  it("declared-but-empty front matter (services: {}, no generator, no smoke) -> declared-empty", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    writeFileSync(join(dir, "AGENTS.md"), "---\n  services: {}\n---\n")
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("declared-empty")
+  })
+
+  it("a valid contract -> ok", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    writeFileSync(join(dir, "AGENTS.md"), `---\n${FRONT_MATTER.trim()}\n---\n`)
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("ok")
+  })
+})
+
+describe("bootstrap: eligible reasons", () => {
+  it("isBootstrapReason is true only for the two missing-initial-contract reasons", () => {
+    expect(isBootstrapReason("missing-compose")).toBe(true)
+    expect(isBootstrapReason("missing-front-matter")).toBe(true)
+    const others: EnsureReason[] = [
+      "declared-empty-contract",
+      "backend-unavailable",
+      "mountpoint-preflight",
+      "sidecar-failed",
+      "compose-build-failed",
+      "warmup-failed",
+    ]
+    for (const reason of others) expect(isBootstrapReason(reason), reason).toBe(false)
+  })
+})
+
+describe("bootstrap: evidence record", () => {
+  it("bootstrapEvidence is failing evidence with the bootstrap marker, sha/service/args/at round-trip", () => {
+    const rec = bootstrapEvidence({ sha: "0123456789abcdef", service: "bootstrap", args: ["-k", "focus"], at: 123 })
+    expect(rec).toEqual({
+      sha: "0123456789abcdef",
+      service: "bootstrap",
+      args: ["-k", "focus"],
+      passed: false,
+      exitCode: 1,
+      at: 123,
+      bootstrap: true,
+    })
+  })
+})
+
+describe("bootstrap: gate planning", () => {
+  it("plans the gate's steps for a full contract", () => {
+    const plan = planGateSteps(parseTestContract(FRONT_MATTER))
+    expect(plan).toEqual({
+      steps: [
+        "test service test",
+        "test service api-test",
+        "test service web-test",
+        "generation drift check",
+        "full profile up (production images)",
+        "smoke check (smoke)",
+      ],
+    })
+  })
+
+  it("refuses an empty contract — the default fallback is never a valid gate contract", () => {
+    const plan = planGateSteps(parseTestContract(""))
+    expect("refusal" in plan).toBe(true)
+  })
+
+  it("refuses an e2e-only contract (no test services, no generator, no smoke)", () => {
+    const plan = planGateSteps(parseTestContract('  services: { e2e: "e2e" }\n'))
+    expect("refusal" in plan).toBe(true)
+  })
+
+  it("a declared smoke still plans the full-profile up and smoke steps", () => {
+    const plan = planGateSteps(parseTestContract('  services: { smoke: "smoke" }\n'))
+    expect(plan).toEqual({ steps: ["full profile up (production images)", "smoke check (smoke)"] })
+  })
+})
+
+describe("bootstrap: red/green regression", () => {
+  const contract = parseTestContract(FRONT_MATTER)
+  const commit = (sha: string, subject: string, files: string[]) => ({ sha, subject, files })
+
+  it("a test-only commit whose only record is a bootstrap record satisfies the RED requirement", () => {
+    const commits = [
+      commit("red1", "onboarding tests", ["apps/api/tests/test_x.py"]),
+      commit("grn1", "onboarding contract + code", ["compose.yml", "AGENTS.md", "apps/api/app/main.py"]),
+    ]
+    const evidence = new Map([
+      ["red1", [bootstrapEvidence({ sha: "red1", service: "bootstrap", args: [], at: 1 })]],
+      ["grn1", [{ sha: "grn1", service: "api-test", args: [], passed: true, exitCode: 0, at: 2 }]],
+    ])
+    expect(redgreenCheck(commits, contract, evidence).ok).toBe(true)
+  })
+
+  it("the code commit after a bootstrap RED still needs a passing record", () => {
+    const commits = [
+      commit("red1", "onboarding tests", ["apps/api/tests/test_x.py"]),
+      commit("grn1", "onboarding contract + code", ["compose.yml", "AGENTS.md", "apps/api/app/main.py"]),
+    ]
+    const evidence = new Map([
+      ["red1", [bootstrapEvidence({ sha: "red1", service: "bootstrap", args: [], at: 1 })]],
+    ])
+    const result = redgreenCheck(commits, contract, evidence)
+    expect(result.ok).toBe(false)
+    expect(result.violations[0].kind).toBe("missing-green")
+  })
+
+  it("a bootstrap record never satisfies the GREEN requirement", () => {
+    const commits = [
+      commit("red1", "onboarding tests", ["apps/api/tests/test_x.py"]),
+      commit("grn1", "onboarding contract + code", ["compose.yml", "AGENTS.md", "apps/api/app/main.py"]),
+    ]
+    const evidence = new Map([
+      ["red1", [bootstrapEvidence({ sha: "red1", service: "bootstrap", args: [], at: 1 })]],
+      ["grn1", [bootstrapEvidence({ sha: "grn1", service: "bootstrap", args: [], at: 2 })]],
+    ])
+    const result = redgreenCheck(commits, contract, evidence)
+    expect(result.ok).toBe(false)
+    expect(result.violations[0].kind).toBe("missing-green")
+  })
+})
+
 describe("redaction", () => {
   it("redacts .env values and token shapes, keeps the tail bounded", () => {
     const long = Array.from({ length: 500 }, (_, i) => `line ${i}`).join("\n")
@@ -213,6 +365,122 @@ describe("redaction", () => {
     writeFileSync(join(dir, ".env"), 'A_TOKEN="supersecret123"\nPLAIN=abc123\nEMPTY=\n')
     expect(envSecrets(dir)).toContain("supersecret123")
     expect(envSecrets(dir)).toContain("abc123")
+  })
+})
+
+describe("bootstrap wiring through the plugin (no Docker)", () => {
+  const gitWorktree = (files: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-wt-"))
+    tmpDirs.push(dir)
+    execSync("git init -q -b main", { cwd: dir })
+    for (const [name, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, name)), { recursive: true })
+      writeFileSync(join(dir, name), content)
+    }
+    execSync("git add -A && git -c commit.gpgsign=false -c user.name=t -c user.email=t@t commit -qm init", { cwd: dir })
+    return dir
+  }
+
+  const setupSandbox = async (worktree: string) => {
+    const tools = new Map<string, any>()
+    const values = new Map<string, any>()
+    const storage = {
+      get: vi.fn(async (key: string) => structuredClone(values.get(key))),
+      set: vi.fn(async (key: string, value: any) => void values.set(key, structuredClone(value))),
+      remove: vi.fn(async (key: string) => void values.delete(key)),
+      scan: vi.fn(async ({ prefix }: { prefix: string }) => ({
+        entries: [...values.entries()]
+          .filter(([key]) => key.startsWith(prefix))
+          .map(([key, value]) => ({ key, value: structuredClone(value) })),
+        next: undefined,
+      })),
+    }
+    const ctx = {
+      options: {},
+      location: { directory: worktree },
+      storage,
+      tool: {
+        transform: async (callback: any) =>
+          callback({ namespace: vi.fn(), add: (tool: any) => tools.set(tool.name, tool) }),
+      },
+      session: { get: vi.fn(async () => ({ location: { directory: worktree } })) },
+    }
+    await sandboxPlugin.setup(ctx as any)
+    return { tools, values }
+  }
+
+  const evidenceFor = (values: Map<string, any>, sha: string) =>
+    [...values.entries()].filter(([key]) => key.startsWith(`evidence/${sha}/`)).map(([, value]) => value)
+
+  it("sandbox_test records bootstrap RED against HEAD when compose.yml is missing, without a backend", async () => {
+    const wt = gitWorktree({ "apps/api/tests/test_x.py": "def test_x(): pass\n" })
+    const { tools, values } = await setupSandbox(wt)
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("RED (bootstrap)")).toBe(true)
+    expect(res.content).toContain("the missing initial contract is the failure")
+    const sha = execSync("git rev-parse HEAD", { cwd: wt }).toString().trim()
+    const records = evidenceFor(values, sha)
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({
+      sha,
+      service: "bootstrap",
+      args: [],
+      passed: false,
+      exitCode: 1,
+      bootstrap: true,
+    })
+    expect(typeof records[0].at).toBe("number")
+  })
+
+  it("same bootstrap RED when AGENTS.md has no front-matter block but compose.yml exists", async () => {
+    const wt = gitWorktree({
+      "compose.yml": "services: {}\n",
+      "AGENTS.md": "# AGENTS.md\n\nInstructions only, no front matter.\n",
+    })
+    const { tools, values } = await setupSandbox(wt)
+    const res = await tools.get("test").execute({ slice: "11", service: "test" }, { sessionID: "s1" })
+    expect(res.content.startsWith("RED (bootstrap)")).toBe(true)
+    const sha = execSync("git rev-parse HEAD", { cwd: wt }).toString().trim()
+    const records = evidenceFor(values, sha)
+    expect(records).toHaveLength(1)
+    expect(records[0]).toMatchObject({ sha, service: "test", passed: false, exitCode: 1, bootstrap: true })
+  })
+
+  it("a declared-but-empty contract stays BLOCKED for sandbox_test and records nothing", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": "---\n  services: {}\n---\n" })
+    const { tools, values } = await setupSandbox(wt)
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).not.toContain("RED (bootstrap)")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("sandbox_up stays BLOCKED for a missing contract (only sandbox_test converts)", async () => {
+    const wt = gitWorktree({ "apps/api/tests/test_x.py": "def test_x(): pass\n" })
+    const { tools, values } = await setupSandbox(wt)
+    const res = await tools.get("up").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("sandbox_test on an unknown service is an actionable BLOCKED, recording nothing", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": `---\n${FRONT_MATTER.trim()}\n---\n` })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("test").execute({ slice: "11", service: "nope-svc" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("not declared in the AGENTS.md test contract")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("sandbox_gate refuses a contract that plans zero steps — never a vacuous pass", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": '---\n  services: { e2e: "e2e" }\n---\n' })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("gate").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("sandbox_gate REFUSED")).toBe(true)
+    expect(res.content).not.toContain("PASSED")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })
 })
 

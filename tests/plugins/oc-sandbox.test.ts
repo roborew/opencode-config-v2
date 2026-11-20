@@ -234,6 +234,28 @@ describe("bootstrap: contract assessment", () => {
     expect(assessContract(dir, readFrontMatter(dir))).toBe("declared-empty")
   })
 
+  it("an unterminated front-matter block is malformed, not missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    writeFileSync(join(dir, "AGENTS.md"), '---\n  services: { all: "test" }\n')
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("malformed-front-matter")
+  })
+
+  it("an unterminated block is malformed even when compose.yml is missing too", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "AGENTS.md"), '---\n  services: { all: "test" }\n')
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("malformed-front-matter")
+  })
+
+  it("declared-empty takes precedence over a missing compose.yml", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "AGENTS.md"), "---\n  services: {}\n---\n")
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("declared-empty")
+  })
+
   it("a valid contract -> ok", () => {
     const dir = mkdtempSync(join(tmpdir(), "boot-"))
     tmpDirs.push(dir)
@@ -249,6 +271,7 @@ describe("bootstrap: eligible reasons", () => {
     expect(isBootstrapReason("missing-front-matter")).toBe(true)
     const others: EnsureReason[] = [
       "declared-empty-contract",
+      "malformed-front-matter",
       "backend-unavailable",
       "mountpoint-preflight",
       "sidecar-failed",
@@ -470,6 +493,28 @@ describe("bootstrap wiring through the plugin (no Docker)", () => {
     const res = await tools.get("test").execute({ slice: "11", service: "nope-svc" }, { sessionID: "s1" })
     expect(res.content.startsWith("BLOCKED")).toBe(true)
     expect(res.content).toContain("not declared in the AGENTS.md test contract")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("a declared-but-empty contract stays BLOCKED even when compose.yml is missing too", async () => {
+    const wt = gitWorktree({ "AGENTS.md": "---\n  services: {}\n---\n" })
+    const { tools, values } = await setupSandbox(wt)
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).not.toContain("RED (bootstrap)")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("an unterminated front-matter block stays BLOCKED, never bootstrap RED", async () => {
+    const wt = gitWorktree({
+      "compose.yml": "services: {}\n",
+      "AGENTS.md": '---\n  services: { all: "test" }\n',
+    })
+    const { tools, values } = await setupSandbox(wt)
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("never closed")
+    expect(res.content).not.toContain("RED (bootstrap)")
     expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })
 

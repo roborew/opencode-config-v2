@@ -206,6 +206,13 @@ export default Plugin.define({
           reason: "declared-empty-contract",
         }
       }
+      if (assessment === "malformed-front-matter") {
+        return {
+          ok: false,
+          blocked: `AGENTS.md in ${worktree} starts a front-matter block that is never closed — fix the test contract`,
+          reason: "malformed-front-matter",
+        }
+      }
       const contract = parseTestContract(frontMatter)
       const choice = await selectBackend(ctx.options as Record<string, string | undefined>, process.env)
       if ("blocked" in choice) return { ok: false, blocked: choice.blocked, reason: "backend-unavailable" }

@@ -217,6 +217,7 @@ export type EvidenceRecord = {
 export type EnsureReason =
   | "missing-compose"
   | "missing-front-matter"
+  | "malformed-front-matter"
   | "declared-empty-contract"
   | "backend-unavailable"
   | "mountpoint-preflight"
@@ -224,20 +225,47 @@ export type EnsureReason =
   | "compose-build-failed"
   | "warmup-failed"
 
-export type ContractAssessment = "missing-compose" | "missing-front-matter" | "declared-empty" | "ok"
+export type ContractAssessment =
+  | "missing-compose"
+  | "missing-front-matter"
+  | "malformed-front-matter"
+  | "declared-empty"
+  | "ok"
 
 /**
- * The state of a worktree's initial test contract (§9.2): the root compose.yml
- * first, then the AGENTS.md front-matter block, then whether the declared
- * contract has any usable step. "declared-empty" means the repo attempted a
- * contract that declares nothing usable — a fail-closed error, never bootstrap.
+ * True when the contract's front matter declares nothing the flow can run:
+ * no test service, no generator, no smoke. An attempted-but-empty declaration.
+ */
+function isDeclaredEmptyContract(contract: TestContract): boolean {
+  const testServices = Object.keys(contract.services).filter((key) => key !== "e2e" && key !== "smoke")
+  return testServices.length === 0 && !contract.generatorService && !contract.services.smoke
+}
+
+/**
+ * True when AGENTS.md starts a front-matter block but never closes it — a
+ * broken declaration, not an absent one (readFrontMatter cannot tell the two
+ * apart; both yield ""). Fail-closed per ADR 0013, never bootstrap RED.
+ */
+export function hasUnterminatedFrontMatter(worktree: string): boolean {
+  const agents = join(worktree, "AGENTS.md")
+  if (!existsSync(agents)) return false
+  const text = readFileSync(agents, "utf8")
+  return text.startsWith("---") && text.indexOf("\n---", 3) === -1
+}
+
+/**
+ * The state of a worktree's initial test contract (§9.2). A declaration the
+ * repo actually made wins over anything it forgot to add: attempted-but-empty
+ * and attempted-but-broken contracts fail closed even when compose.yml is
+ * missing too, and are never bootstrap-eligible. "declared-empty" and
+ * "malformed-front-matter" mean the repo attempted a contract; only a wholly
+ * absent one ("missing-compose", "missing-front-matter") is bootstrap RED.
  */
 export function assessContract(worktree: string, frontMatter: string): ContractAssessment {
+  if (frontMatter && isDeclaredEmptyContract(parseTestContract(frontMatter))) return "declared-empty"
+  if (!frontMatter && hasUnterminatedFrontMatter(worktree)) return "malformed-front-matter"
   if (!existsSync(join(worktree, "compose.yml"))) return "missing-compose"
   if (!frontMatter) return "missing-front-matter"
-  const contract = parseTestContract(frontMatter)
-  const testServices = Object.keys(contract.services).filter((key) => key !== "e2e" && key !== "smoke")
-  if (testServices.length === 0 && !contract.generatorService && !contract.services.smoke) return "declared-empty"
   return "ok"
 }
 

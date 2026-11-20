@@ -1125,10 +1125,14 @@ describe("prepareMountpoints (compose config orchestration)", () => {
     const otherModel: ComposeModel = {
       services: { gen: { volumes: [{ type: "bind", source: join(wt, "elsewhere"), target: "/repo/elsewhere" }] } },
     }
-    const calls: Array<Record<string, string | undefined> | undefined> = []
-    const runCompose = async (_argv: string[], _cwd: string, env?: Record<string, string | undefined>) => {
-      calls.push(env)
-      return { exitCode: 0, stdout: JSON.stringify(env === undefined ? model : otherModel), stderr: "" }
+    const calls: Array<{ env?: Record<string, string | undefined> } | undefined> = []
+    const runCompose = async (
+      _argv: string[],
+      _cwd: string,
+      opts?: { env?: Record<string, string | undefined> },
+    ) => {
+      calls.push(opts)
+      return { exitCode: 0, stdout: JSON.stringify(opts?.env === undefined ? model : otherModel), stderr: "" }
     }
     const blocked = await prepareMountpoints(wt, "compose.yml", {
       runCompose,
@@ -1137,7 +1141,7 @@ describe("prepareMountpoints (compose config orchestration)", () => {
     })
     expect(blocked.ok).toBe(false)
     if (!blocked.ok) expect(blocked.blocked).toContain("cannot receive")
-    expect(calls[2] && Object.keys(calls[2])).toEqual(["PATH"])
+    expect(calls[2]?.env && Object.keys(calls[2].env)).toEqual(["PATH"])
 
     const runComposeSame = async () => ({ exitCode: 0, stdout: JSON.stringify(model), stderr: "" })
     const ok = await prepareMountpoints(wt, "compose.yml", { runCompose: runComposeSame, profiles: ["test"], crossCheckEnv: true })

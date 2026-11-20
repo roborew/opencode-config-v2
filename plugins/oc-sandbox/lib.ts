@@ -224,6 +224,7 @@ export type EnsureReason =
   | "sidecar-failed"
   | "compose-build-failed"
   | "warmup-failed"
+  | "contract-removed-mid-slice"
 
 export type ContractAssessment =
   | "missing-compose"

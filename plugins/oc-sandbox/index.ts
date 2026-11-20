@@ -181,22 +181,31 @@ export default Plugin.define({
       const id = sandboxId(sliceKey, worktree)
       const stateKey = `sandboxes/${sliceKey}`
       const existing = (await ctx.storage.get(stateKey)) as SandboxState | undefined
-      if (existing) return { ok: true, state: existing }
 
+      // Cold and warm paths agree: the current contract is assessed before
+      // cached sandbox state is reused, so a contract emptied or removed after
+      // warm-up is BLOCKED here too — and a sandbox warmed against a real
+      // contract never turns a later-missing one into bootstrap RED (ADR 0013:
+      // bootstrap applies only to the initial contract).
       const frontMatter = readFrontMatter(worktree)
       const assessment = assessContract(worktree, frontMatter)
-      if (assessment === "missing-compose") {
-        return {
-          ok: false,
-          blocked: `no compose.yml in ${worktree} — the repo's test contract is missing`,
-          reason: "missing-compose",
+      if (assessment === "missing-compose" || assessment === "missing-front-matter") {
+        if (existing) {
+          return {
+            ok: false,
+            blocked:
+              `the test contract is missing in ${worktree} but this slice's sandbox was already created — ` +
+              "restore compose.yml and the AGENTS.md test front matter (git checkout) instead of re-onboarding",
+            reason: "contract-removed-mid-slice",
+          }
         }
-      }
-      if (assessment === "missing-front-matter") {
         return {
           ok: false,
-          blocked: `no AGENTS.md test front matter in ${worktree} — the repo's test contract is missing`,
-          reason: "missing-front-matter",
+          blocked:
+            assessment === "missing-compose"
+              ? `no compose.yml in ${worktree} — the repo's test contract is missing`
+              : `no AGENTS.md test front matter in ${worktree} — the repo's test contract is missing`,
+          reason: assessment,
         }
       }
       if (assessment === "declared-empty") {
@@ -213,6 +222,7 @@ export default Plugin.define({
           reason: "malformed-front-matter",
         }
       }
+      if (existing) return { ok: true, state: existing }
       const contract = parseTestContract(frontMatter)
       const choice = await selectBackend(ctx.options as Record<string, string | undefined>, process.env)
       if ("blocked" in choice) return { ok: false, blocked: choice.blocked, reason: "backend-unavailable" }

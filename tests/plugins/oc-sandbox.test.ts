@@ -272,6 +272,7 @@ describe("bootstrap: eligible reasons", () => {
     const others: EnsureReason[] = [
       "declared-empty-contract",
       "malformed-front-matter",
+      "contract-removed-mid-slice",
       "backend-unavailable",
       "mountpoint-preflight",
       "sidecar-failed",
@@ -518,12 +519,35 @@ describe("bootstrap wiring through the plugin (no Docker)", () => {
     expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })
 
-  it("sandbox_gate refuses a contract that plans zero steps — never a vacuous pass", async () => {
+  it("a contract emptied after warm-up is BLOCKED on the cached path too — no evidence from an invalid contract", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": '---\n  services: { e2e: "test" }\n---\n' })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("test").execute({ slice: "11", service: "test" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("declares nothing usable")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("a contract removed after warm-up is BLOCKED, never bootstrap RED", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": `---\n${FRONT_MATTER.trim()}\n---\n` })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    rmSync(join(wt, "compose.yml"))
+    rmSync(join(wt, "AGENTS.md"))
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("sandbox was already created")
+    expect(res.content).not.toContain("RED (bootstrap)")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("sandbox_gate never passes vacuously — an emptied contract BLOCKs even with a seeded sandbox", async () => {
     const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": '---\n  services: { e2e: "e2e" }\n---\n' })
     const { tools, values } = await setupSandbox(wt)
     values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
     const res = await tools.get("gate").execute({ slice: "11" }, { sessionID: "s1" })
-    expect(res.content.startsWith("sandbox_gate REFUSED")).toBe(true)
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
     expect(res.content).not.toContain("PASSED")
     expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })

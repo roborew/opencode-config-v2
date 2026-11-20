@@ -12,6 +12,7 @@ import {
   buildWarmArgv,
   envSecrets,
   parseTestContract,
+  prepareMountpoints,
   readFrontMatter,
   redactTail,
   redgreenCheck,
@@ -142,6 +143,32 @@ export default Plugin.define({
       return map
     }
 
+    /**
+     * The mountpoint preflight: materializes every host path the Docker daemon
+     * would otherwise create as root (bind sources and nested volume
+     * mountpoints inside the worktree) as the invoking user, and verifies
+     * existing ones. Runs on the host for both backends — the worktree paths
+     * are host paths no matter where Compose runs. Rendered with the sandbox
+     * project name and the contract's flow profiles; on sysbox the model is
+     * cross-checked against a clean environment because the box receives no
+     * process env. Fails closed. sandbox_down deliberately bypasses it, so
+     * teardown stays available when new starts are blocked.
+     */
+    const mountpointPreflight = async (
+      worktree: string,
+      contract: ReturnType<typeof parseTestContract>,
+      id: string,
+      backend: Backend,
+    ): Promise<string | null> => {
+      const pre = await prepareMountpoints(worktree, contract.composeFile, {
+        secrets: envSecrets(worktree),
+        id,
+        profiles: contract.profiles.length ? contract.profiles : undefined,
+        crossCheckEnv: backend === "sysbox",
+      })
+      return pre.ok ? null : pre.blocked
+    }
+
     const ensureUp = async (
       worktree: string,
     ): Promise<{ ok: true; state: SandboxState } | { ok: false; blocked: string }> => {
@@ -157,6 +184,8 @@ export default Plugin.define({
       }
       const choice = await selectBackend(ctx.options as Record<string, string | undefined>, process.env)
       if ("blocked" in choice) return { ok: false, blocked: choice.blocked }
+      const mountpoints = await mountpointPreflight(worktree, contract, id, choice.backend)
+      if (mountpoints) return { ok: false, blocked: mountpoints }
       const state: SandboxState = { id, backend: choice.backend, sidecar: choice.sidecar, createdAt: Date.now() }
 
       if (choice.backend === "sysbox" && choice.sidecar) {
@@ -240,6 +269,8 @@ export default Plugin.define({
           const up = await ensureUp(wt)
           if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
           const contract = parseTestContract(readFrontMatter(wt))
+          const mountpoints = await mountpointPreflight(wt, contract, up.state.id, up.state.backend)
+          if (mountpoints) return { content: `BLOCKED: ${mountpoints}` }
           const service = input.service ?? contract.services.all ?? "test"
           const argv = buildTestArgv(contract, up.state.id, service, input.args ?? [])
           const run = await runArgv(up.state, argv, wt)
@@ -265,9 +296,17 @@ export default Plugin.define({
           const contract = parseTestContract(readFrontMatter(wt))
           const steps: { step: string; passed: boolean; detail?: string }[] = []
           const secrets = envSecrets(wt)
+          // the model is re-validated before each container-creating step:
+          // compose.yml may have changed since the last one
+          const preflight = async () => {
+            const blocked = await mountpointPreflight(wt, contract, up.state.id, up.state.backend)
+            return blocked ? { content: `BLOCKED: ${blocked}` } : null
+          }
 
           for (const [key, service] of Object.entries(contract.services)) {
             if (key === "e2e" || key === "smoke") continue
+            const gateBlocked = await preflight()
+            if (gateBlocked) return gateBlocked
             const run = await runArgv(up.state, buildTestArgv(contract, up.state.id, service, []), wt)
             await recordEvidence({
               sha: gitIn(wt, "rev-parse HEAD"),
@@ -281,6 +320,8 @@ export default Plugin.define({
           }
 
           if (contract.generatorService) {
+            const genBlocked = await preflight()
+            if (genBlocked) return genBlocked
             const gen = await runArgv(
               up.state,
               buildTestArgv(contract, up.state.id, contract.generatorService, []),
@@ -311,9 +352,13 @@ export default Plugin.define({
               .replace("docker compose", `docker compose -p ${up.state.id}`)
               .split(/\s+/)
               .filter(Boolean)
+            const fullBlocked = await preflight()
+            if (fullBlocked) return fullBlocked
             const fullRun = await runArgv(up.state, full, wt, 10 * 60_000)
             steps.push({ step: "full profile up (production images)", passed: fullRun.exitCode === 0, detail: redactTail(fullRun.output, 10) })
             if (fullRun.exitCode === 0) {
+              const smokeBlocked = await preflight()
+              if (smokeBlocked) return smokeBlocked
               const run = await runArgv(up.state, buildTestArgv(contract, up.state.id, smokeService, []), wt, 10 * 60_000)
               steps.push({ step: `smoke check (${smokeService})`, passed: run.exitCode === 0, detail: redactTail(run.output, 20) })
             }

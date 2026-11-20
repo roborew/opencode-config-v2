@@ -921,7 +921,11 @@ export async function prepareMountpoints(
   worktree: string,
   composeFile: string,
   deps: {
-    runCompose?: (argv: string[], cwd: string, env?: Record<string, string | undefined>) => Promise<ComposeRunResult>
+    runCompose?: (
+      argv: string[],
+      cwd: string,
+      opts?: { env?: Record<string, string | undefined> },
+    ) => Promise<ComposeRunResult>
     secrets?: string[]
     uid?: number
     gid?: number
@@ -964,7 +968,7 @@ export async function prepareMountpoints(
   }
   const planned = planMountpoints(model, worktree)
   if (deps.crossCheckEnv) {
-    const crossRun = await runCompose(configArgv, worktree, { PATH: process.env.PATH })
+    const crossRun = await runCompose(configArgv, worktree, { env: { PATH: process.env.PATH } })
     if (crossRun.exitCode !== 0) {
       return {
         ok: false,

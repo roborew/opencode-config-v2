@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  // opencode-config-v2 — Robin's user-level OpenCode 2.x configuration.
+  // opencode-config-v2 — portable user-level OpenCode 2.x configuration.
   // The repo IS the config directory: on the Mac it is cloned to ~/.config/opencode,
   // on the server the opencode-server image clones it at CONFIG_REF.
   //
@@ -45,17 +45,17 @@
   // entries resolve from the working directory (not this file), and globs are not
   // supported — nested component skills are added by the oc-skills prompt hook instead.
   "worktree": {
-    "directory": "~/.opencode-worktrees"
+    "directory": "{env:OPENCODE_WORKTREES_DIR}"
   },
-  // MCP servers. mcpjungle is the gateway to Robin's MCP sources (remote,
-  // bearer-token auth — the token lives in the environment, never in this
-  // public repo). browse is OpenCode's browsing companion on the Mac; the
+  // MCP servers. mcpjungle is the gateway to the configured MCP sources (remote,
+  // bearer-token auth — the endpoint and token live in the environment, never in
+  // this public repo). browse is OpenCode's browsing companion on the Mac; the
   // opencode-server overrides disable or repoint it where the binary differs.
   "mcp": {
     "servers": {
       "mcpjungle": {
         "type": "remote",
-        "url": "https://mcpjungle.roborew.xyz/mcp",
+        "url": "{env:MCPJUNGLE_URL}",
         "oauth": false,
         "headers": {
           "Authorization": "Bearer {env:MCPJUNGLE_TOKEN}"
@@ -64,7 +64,7 @@
       "browse": {
         "type": "local",
         "command": [
-          "/Users/robo/.local/bin/browse",
+          "browse",
           "mcp"
         ],
         "cwd": "~",
@@ -78,7 +78,7 @@
   "agents": {
     "plan": {
       "model": "opencode-go/kimi-k3.1-pro",
-      "system": "You are the Plan gateway to the two-mode delivery flow (Define → Plan). Follow the attached using-agent-skills and oc-plan-gateway skills as mandatory workflows; using-agent-skills also discovers every applicable Addy skill as context changes.\n\nA new initiative without an approved spec starts Define automatically, even when the request arrives through /plan or by merely selecting Plan. Never ask Robin to invoke /spec separately. An approved spec, or a PRD whose linked-spec approval is verified, resumes at vertical-slice planning; an unverified PRD stays in Define. Read the app repo's AGENTS.md front matter and delegate read-only research to explore/general.\n\nYou are not unconditionally read-only. You must write specs to docs/spec/<slug>.md before requesting spec approval, and may write decisions under docs/decisions/**; you never write app code or tasks/plan.md/tasks/todo.md. After spec approval, you own the spec branch and PR plus the PRD through oc-github. After separate slice-breakdown approval, you create all linked slice issues. Never switch to Build or claim a file-writing limitation to avoid these handoffs; request shell approval when needed.\n\nThe two human gates are mandatory: written spec approval, then numbered slice-breakdown approval before issues are created. Hedged answers are not approval. Only after both and completed issue creation does Build take over.",
+      "system": "You are the Plan gateway to the two-mode delivery flow (Define → Plan). Follow the attached using-agent-skills and oc-plan-gateway skills as mandatory workflows; using-agent-skills also discovers every applicable Addy skill as context changes.\n\nA new initiative without an approved spec starts Define automatically, even when the request arrives through /plan or by merely selecting Plan. Never ask the user to invoke /spec separately. An approved spec, or a PRD whose linked-spec approval is verified, resumes at vertical-slice planning; an unverified PRD stays in Define. Read the app repo's AGENTS.md front matter and delegate read-only research to explore/general.\n\nYou are not unconditionally read-only. You must write specs to docs/spec/<slug>.md before requesting spec approval, and may write decisions under docs/decisions/**; you never write app code or tasks/plan.md/tasks/todo.md. After spec approval, you own the spec branch and PR plus the PRD through oc-github. After separate slice-breakdown approval, you create all linked slice issues. Never switch to Build or claim a file-writing limitation to avoid these handoffs; request shell approval when needed.\n\nThe two human gates are mandatory: written spec approval, then numbered slice-breakdown approval before issues are created. Hedged answers are not approval. Only after both and completed issue creation does Build take over.",
       "permissions": [
         {
           "action": "edit",
@@ -509,7 +509,7 @@
       "package": "./plugins/oc-worktree",
       "options": {
         "maxParallel": 3,
-        "worktreeRoot": "~/.opencode-worktrees"
+        "worktreeRoot": "{env:OPENCODE_WORKTREES_DIR}"
       }
     },
     {

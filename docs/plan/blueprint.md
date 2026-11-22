@@ -429,6 +429,9 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 | OpenCode Go / Zen login              | `/connect` on each machine      | models                                                |
 | GitHub auth for `gh`                 | `gh auth login` on each machine | issues, PRs, monitor                                  |
 | `OC_SANDBOX_BACKEND`                 | env (optional)                  | `auto` \| `sysbox` \| `docker`                        |
+| `MCPJUNGLE_URL`                      | env (required)                  | absolute MCPJungle gateway URL (`https://<host>/mcp`) |
+| `MCPJUNGLE_TOKEN`                    | env (required)                  | bearer token for the MCPJungle gateway                |
+| `OPENCODE_WORKTREES_DIR`             | env (default `~/.opencode-worktrees`) | root for slice worktrees                        |
 | Real app secrets                     | Robin's secrets manager         | never needed for tests (§9.2), never pulled by agents |
 | `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                      | sidecar access                                        |
 | PR review apps (optional)            | GitHub, per repo                | review threads from any tool                          |

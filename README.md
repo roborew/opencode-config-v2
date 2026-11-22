@@ -43,6 +43,19 @@ choices. How the flow tests is defined separately by the test contract in
 4. `gh auth login` — the flow creates issues, labels and PRs through `gh`.
 5. Optional: `OC_SANDBOX_BACKEND=docker` forces the local Docker backend (the default
    is auto-detect: sidecar → sysbox, local Docker → docker).
+6. Export the required environment variables (see [Environment](#environment)) before
+   starting OpenCode.
+
+### Environment
+
+The config reads these when it loads; export them in your shell profile (or let
+Infisical inject them on the server) so every session sees the same values.
+
+| Variable                 | Format                                                 | Purpose                                                                                                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCPJUNGLE_URL`          | absolute URL, e.g. `https://mcpjungle.example.com/mcp` | Endpoint of the MCPJungle gateway. Required: OpenCode substitutes an empty string when it is unset, and a remote MCP server needs an absolute URL, so the gateway cannot connect without it.                                                |
+| `MCPJUNGLE_TOKEN`        | bearer token                                           | Authenticates to the gateway. A 401 "invalid MCP client token" means it is unset or stale.                                                                                                                                                  |
+| `OPENCODE_WORKTREES_DIR` | absolute path, e.g. `~/.opencode-worktrees`             | Root for slice worktrees (the plugin expands a leading `~`). Set it explicitly: `oc-worktree` falls back to `~/.opencode-worktrees` when the value is empty, but `worktree.directory` in `opencode.jsonc` uses the value directly. |
 
 ### Server
 

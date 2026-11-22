@@ -44,7 +44,7 @@ export default Plugin.define({
   id: "oc-worktree",
   async setup(ctx) {
     const maxParallel = Number((ctx.options as any)?.maxParallel ?? 3)
-    const worktreeRoot = String((ctx.options as any)?.worktreeRoot ?? "~/.opencode-worktrees").replace(
+    const worktreeRoot = String((ctx.options as any)?.worktreeRoot || "~/.opencode-worktrees").replace(
       /^~(?=$|\/)/,
       process.env.HOME ?? "",
     )

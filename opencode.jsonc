@@ -49,8 +49,11 @@
   },
   // MCP servers. mcpjungle is the gateway to the configured MCP sources (remote,
   // bearer-token auth — the endpoint and token live in the environment, never in
-  // this public repo). browse is OpenCode's browsing companion on the Mac; the
-  // opencode-server overrides disable or repoint it where the binary differs.
+  // this public repo). MCPJUNGLE_URL must be an absolute URL (for example
+  // https://mcpjungle.example.com/mcp) and MCPJUNGLE_TOKEN a valid bearer token;
+  // both are required — see README › Environment. browse is OpenCode's browsing
+  // companion on the Mac; the opencode-server overrides disable or repoint it
+  // where the binary differs.
   "mcp": {
     "servers": {
       "mcpjungle": {

@@ -126,11 +126,13 @@ export type SliceRecord = {
   sessionID?: string
   sessionStarting?: string
   sessionStartingPID?: number
+  dispatchPending?: boolean
   coordinatorSessionID?: string
   state: "building" | "in-review" | "ready" | "blocked"
   prURL?: string
   pendingLabel?: string
   blockedReason?: string
+  blockedQuestion?: string
   blockedRevision?: string
   syncPending?: boolean
   syncClaim?: string

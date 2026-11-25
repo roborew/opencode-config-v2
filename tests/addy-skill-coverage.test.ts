@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { parse, type ParseError } from "jsonc-parser"
 import { describe, expect, it } from "vitest"
+import { LIFECYCLE_POLICY } from "../plugins/shared/lifecycle-policy"
 
 type Config = {
   agents?: Record<string, { permissions?: { action: string; resource: string; effect: string }[] }>
@@ -44,15 +45,7 @@ function allowedSkills(agent: string): Set<string> {
 
 const plan = allowedSkills("plan")
 const build = allowedSkills("build")
-const eitherPrimary = new Set([...plan, ...build])
-const routingContract = [
-  "AGENTS.md",
-  "skills/oc/oc-plan-gateway/SKILL.md",
-  "skills/oc/oc-build-gateway/SKILL.md",
-]
-  .filter(existsSync)
-  .map((path) => readFileSync(path, "utf8"))
-  .join("\n")
+const policySkills = LIFECYCLE_POLICY.map((entry) => entry.skill).sort()
 
 const addySkills = readdirSync("skills/addy", { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && existsSync(`skills/addy/${entry.name}/SKILL.md`))
@@ -74,10 +67,14 @@ describe("vendored Addy skill coverage", () => {
     expect(addySkills).toHaveLength(25)
   })
 
-  for (const id of addySkills) {
-    it(`${id} has a primary-agent permission and an activation rule`, () => {
-      expect(eitherPrimary, `${id} is not permitted for Plan or Build`).toContain(id)
-      expect(routingContract, `${id} has no activation rule in a gateway or AGENTS.md`).toContain(id)
+  it("covers every vendored skill in the canonical lifecycle policy", () => {
+    expect(policySkills).toEqual([...addySkills].sort())
+  })
+
+  for (const { skill, owner } of LIFECYCLE_POLICY) {
+    it(`${skill} has the permission required by its primary owner`, () => {
+      if (owner === "plan" || owner === "shared") expect(plan).toContain(skill)
+      if (owner === "build" || owner === "shared") expect(build).toContain(skill)
     })
   }
 
@@ -98,6 +95,49 @@ describe("vendored Addy skill coverage", () => {
   it("makes conditional quality and launch workflows available to Build", () => {
     expect(build).toContain("constraint-driven-development")
     expect(build).toContain("shipping-and-launch")
+  })
+})
+
+describe("lifecycle handoff contract", () => {
+  const planGateway = readFileSync("skills/oc/oc-plan-gateway/SKILL.md", "utf8")
+  const github = readFileSync("skills/oc/oc-github/SKILL.md", "utf8")
+  const slice = readFileSync("skills/oc/oc-github/templates/slice.md", "utf8")
+  const repoAgents = readFileSync("templates/repo/AGENTS.md", "utf8")
+
+  it("records both Plan approvals at their exact revisions, read-only", () => {
+    expect(planGateway).toContain("SPEC-APPROVED: <spec path> @ <full commit SHA>")
+    expect(planGateway).toContain("BREAKDOWN-APPROVED: <sha256> @ <full spec commit SHA>")
+    expect(planGateway).toContain("Never write, edit, or manufacture this record")
+    expect(planGateway).toContain("missing, stale, superseded, bot-authored, or digest-mismatched")
+    expect(github).toContain("Approval evidence is read-only to agents")
+  })
+
+  it("keeps slice lifecycle declarations compact and deferrals targeted", () => {
+    expect(slice).toContain("## Lifecycle workflows")
+    expect(slice).toContain("additional contextual Addy workflows only")
+    expect(slice).toContain("Never omit\n     a declared judgment trigger")
+    expect(slice).toContain("## Deferred requirements")
+    expect(slice).toContain("requirement — target issue #N — target acceptance criterion")
+    expect(github).toContain("Before closing a source slice")
+    expect(github).toContain("acceptance criteria")
+  })
+
+  it("declares repository reviewer facts only where reviewers are enabled", () => {
+    expect(repoAgents).toContain("review:")
+    expect(repoAgents).toContain("exact check name")
+    expect(repoAgents).toContain("name only reviewers actually enabled")
+  })
+
+  it("keeps trigger policy out of gateway and global prose", () => {
+    const global = readFileSync("AGENTS.md", "utf8")
+    const buildGateway = readFileSync("skills/oc/oc-build-gateway/SKILL.md", "utf8")
+
+    expect(planGateway).not.toContain("| Context")
+    expect(planGateway).toContain("plugins/shared/lifecycle-policy.ts` owns every Addy trigger")
+    expect(buildGateway).not.toContain("| Context")
+    expect(buildGateway).toContain("owns the canonical trigger and evidence")
+    expect(global).not.toContain("| Trigger")
+    expect(global).toContain("do not maintain a second trigger table")
   })
 })
 

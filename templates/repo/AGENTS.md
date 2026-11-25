@@ -15,12 +15,21 @@ test:
   services: { all: "test", app: "app-test", e2e: "e2e", smoke: "smoke" }
   checks: { lint: "app-lint", typecheck: "app-typecheck" }
 test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
+# Uncomment and name only reviewers actually enabled for this repository.
+# The value is the exact check name GitHub reports at the current PR head.
+# review:
+#   required:
+#     coderabbit: "CodeRabbit"
+#     kilo: "Kilo Code Review"
 ---
 
 <!-- Skeleton written by repo-setup (blueprint §9.3). The front matter above is
      a single full-stack Next.js example, not a required stack or layout. Replace
-     apps:, test:, test_globs: and checks: with this repo's real facts and keep
-     the shape: oc-sandbox, oc-skills and redgreen_check read them. apps: declares
+     `apps:`, `test:`, `test_globs:`, `checks:` and optional `review:` with this
+     repo's real facts and keep the shape: oc-sandbox, oc-skills,
+     oc-pr-monitor and redgreen_check read them. `review.required` maps enabled
+     reviewer IDs to their exact current-head check names; omit it when the repo
+     has no configured PR reviewers. apps: declares
      logical components; it does not require an apps/ directory. Declare several
      entries for a multi-app repo. Add contract: with generated paths and a
      generator service only when generated artifacts actually exist. checks:

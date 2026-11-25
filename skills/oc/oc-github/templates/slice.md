@@ -27,6 +27,16 @@
      front matter apps: keys; plus area:db / area:infra / area:docs /
      risk:security where they apply. These become the issue's labels. -->
 
+## Lifecycle workflows
+
+{{lifecycle_workflows}}
+<!-- additional contextual Addy workflows only, each with its reason. Core
+     Build and mandatory Review workflows are already in the standard route.
+     Use "None beyond core; declared judgment triggers reviewed as not
+     applicable; final diff to recheck" when nothing extra applies. Never omit
+     a declared judgment trigger; recheck the final uncommitted and committed
+     diff before PR delivery. -->
+
 ## Contract change
 
 {{contract_change}}
@@ -45,3 +55,10 @@
 {{blocked_by}}
 <!-- none, or the slice issue numbers this one waits on. Recorded as GitHub
      blocking relationships where available, with this section as the fallback. -->
+
+## Deferred requirements
+
+{{deferred_requirements}}
+<!-- none, or each requirement that must happen before activation, deployment or
+     launch: requirement — target issue #N — target acceptance criterion. The
+     source slice cannot close until the target issue contains it. -->

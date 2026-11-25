@@ -7,7 +7,7 @@
   folder, and `LICENSE`. Nothing else is taken from upstream.
 
 This folder is **unmodified** upstream content. Only `addy-sync` (the skill at
-`skills/oc/addy-sync/`) may change it, and only after Robin approves the diff.
+`skills/oc/addy-sync/`) may change it, and only after the diff is approved.
 Every commit that changes `skills/addy/` must carry an `Addy-Sync: <sha>` trailer
 naming the upstream commit it vendored; CI rejects anything else.
 

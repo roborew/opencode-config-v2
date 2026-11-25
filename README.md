@@ -1,8 +1,8 @@
 # opencode-config-v2
 
-Robin's user-level OpenCode 2.x configuration. It defines one delivery flow —
-Define → Plan → Build → Verify → Review → Ship — that behaves identically on his
-Mac and on his server, and adds custom pieces only where an external tool
+User-level OpenCode 2.x configuration. It defines one delivery flow —
+Define → Plan → Build → Verify → Review → Ship — that behaves identically on the
+Mac and on the server, and adds custom pieces only where an external tool
 (OpenCode server, GitHub, Sysbox/Docker) has to be integrated.
 
 **This repository is the OpenCode config directory.** It is not an app repo and
@@ -33,7 +33,7 @@ choices. How the flow tests is defined separately by the test contract in
 ### Mac
 
 1. Back up the old config if any, then clone this repo as the config directory:
-   `git clone git@github.com:roborew/opencode-config-v2.git ~/.config/opencode`
+   `git clone git@github.com:OWNER/opencode-config-v2.git ~/.config/opencode`
    (the old v1 config that lived there is retired — nothing is copied from it).
 2. `cd ~/.config/opencode && npm install` — installs `@opencode/plugin`, which the
    plugins in `plugins/` resolve at runtime.
@@ -123,7 +123,7 @@ The flow is implemented (tickets 00–08, 11): config skeleton, vendored addy
 skills, the four plugins (`oc-skills`, `oc-sandbox`, `oc-worktree`,
 `oc-pr-monitor`), the five commands, and CI config verification plus plugin
 tests. Remaining: the opencode-server work (tickets 09–10, in that repo) and the
-recorded end-to-end runs (ticket 12, with Robin). Work is tracked locally in
+recorded end-to-end runs (ticket 12). Work is tracked locally in
 `.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until the GitHub tracker
 is switched on.
 

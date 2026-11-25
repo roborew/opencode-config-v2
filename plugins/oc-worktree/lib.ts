@@ -110,7 +110,7 @@ function dirname(p: string): string {
   return parts.join("/") || "/"
 }
 
-/** The .env files copied into a worktree for Robin's convenience (never .env.example, never printed). */
+/** The .env files copied into a worktree for convenience (never .env.example, never printed). */
 export function envFilesToCopy(source: string): string[] {
   if (!existsSync(source)) return []
   return readdirSync(source).filter((f) => f.startsWith(".env") && f !== ".env.example")

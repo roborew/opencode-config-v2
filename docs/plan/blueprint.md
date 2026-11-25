@@ -19,7 +19,7 @@ This repo **is** the user-level OpenCode config directory.
 - On the Mac: clone it to `~/.config/opencode`. OpenCode then loads `opencode.jsonc`, `agents/`, `commands/`, `skills/` and `plugins/` from there for every project.
 - On the server: the opencode-server image clones it at `CONFIG_REF` into the config directory. Server-only extras are merged from opencode-server's own overrides (see §11).
 
-App repos never hold a copy of this config. Every project has one app repo, but its internals may be a root-level single application or a multi-app monorepo. Robin's Project Template (`templates/project/TEMPLATE.md`) provides architecture guidance for both, plus the test contract and app-repo rules in §9. It does not require nested `apps/`, shared `packages/`, a separate API or a particular framework. How tests run is set by this flow (§7.2, §9.2), not by the template.
+App repos never hold a copy of this config. Every project has one app repo, but its internals may be a root-level single application or a multi-app monorepo. The Project Template (`templates/project/TEMPLATE.md`) provides architecture guidance for both, plus the test contract and app-repo rules in §9. It does not require nested `apps/`, shared `packages/`, a separate API or a particular framework. How tests run is set by this flow (§7.2, §9.2), not by the template.
 
 ## 2. Repository layout
 
@@ -71,7 +71,7 @@ opencode-config-v2/
 ├── .github/workflows/ci.yml       # config validation, plugin tests, secret scan
 ├── package.json                   # plugin dev deps (@opencode/plugin, test runner) [spike: runtime]
 ├── .gitignore
-├── LICENSE                        # Robin's choice (default: MIT)
+├── LICENSE                        # Licence choice (default: MIT)
 └── README.md                      # what it is, install on Mac/server, update addy
 ```
 
@@ -157,7 +157,7 @@ GLM 5.3 Flash, and code review to MiniMax M3.1 Flash. Prices from the
 $60, GLM 5.3 Flash $180, MiniMax M3.1 Flash $80, Qwen3.8 Max $60, DeepSeek
 V4.1 Flash $200.
 
-**Setup Robin does himself:** run `/connect` for OpenCode Go and Zen. Then, in Go's **Settings › Privacy › Regions**, choose **Global**; DeepSeek V4.1 Flash needs this ([Go docs](https://opencode.ai/docs/go/)).
+**Manual setup:** run `/connect` for OpenCode Go and Zen. Then, in Go's **Settings › Privacy › Regions**, choose **Global**; DeepSeek V4.1 Flash needs this ([Go docs](https://opencode.ai/docs/go/)).
 
 ## 4. Agents
 
@@ -234,7 +234,7 @@ Three loading mechanisms complement one another:
    their command-specific skills (confirmed inside templates, ADR 0009). `/plan`
    is now a full Plan gateway: with no approved spec it starts Define; with an
    approved spec it resumes vertical slicing. `/spec`, `/build #N`, `/review`
-   and `/ship` are explicit/recovery forms, not private skill names Robin must
+   and `/ship` are explicit/recovery forms, not private skill names the user must
    remember. Plan alone owns spec files, spec PRs, PRDs and slice issues.
 3. **Slice overlays.** In a slice worktree (`oc-slice.json`, written by
    `oc-worktree`), the same prompt hook composes the Build gateway + base skills
@@ -319,12 +319,12 @@ Each is a short `SKILL.md` with `name` and `description` frontmatter. It describ
 - **oc-worktree:** when and how to call `slice_*`, and what each state means.
 - **oc-sandbox:** the red/green loop through `sandbox_test`, focused runs vs full runs, and reading `redgreen_check`.
 - **oc-pr-monitor:** handling a wake-up, the fix/reply rules and the round cap.
-- **addy-sync:** fetch addy at a target ref (default `main`), show the diff of `skills/addy/` and `references/` against `UPSTREAM.md`, apply only after Robin approves, update `UPSTREAM.md`, and flag any skill that was renamed or removed and is still referenced in §6 or in the permissions.
+- **addy-sync:** fetch addy at a target ref (default `main`), show the diff of `skills/addy/` and `references/` against `UPSTREAM.md`, apply only after approval, update `UPSTREAM.md`, and flag any skill that was renamed or removed and is still referenced in §6 or in the permissions.
 - **repo-setup:** propose §9 setup for an app repo using its actual single-app or multi-app shape. Show every file and setting before applying it, and apply only after approval. Branch protection and labels go through `gh api`.
 
 ## 9. App repo contract
 
-### 9.1 Layout and architecture: Robin's Project Template
+### 9.1 Layout and architecture: the Project Template
 
 Every project uses one app repo. `templates/project/TEMPLATE.md` guides architecture without imposing the Rekalled monorepo as a skeleton:
 
@@ -334,27 +334,27 @@ Every project uses one app repo. `templates/project/TEMPLATE.md` guides architec
 - **Contracts are conditional.** When a separate consumer and provider need an explicit API contract, OpenAPI plus a committed generated client is one good approach. A full-stack app with internal server functions needs no standalone backend schema, `packages/api-client` or generator service.
 - **Architecture is idiomatic and docs stay next to code.** Backend layering and frontend feature modules are options, not requirements. Product specs live in `docs/spec/`, ADRs in `docs/decisions/`, and deployment docs in `docs/deployment/`.
 
-Existing manifests, framework entry points, tests and `AGENTS.md` determine what the repo is before any restructuring is proposed. The template's testing section (§4) doesn't decide how the flow tests: §9.2 does. The `justfile` is optional, a shortcut for Robin. The flow never depends on it (D31).
+Existing manifests, framework entry points, tests and `AGENTS.md` determine what the repo is before any restructuring is proposed. The template's testing section (§4) doesn't decide how the flow tests: §9.2 does. The `justfile` is optional, a shortcut for working by hand. The flow never depends on it (D31).
 
 ### 9.2 Test contract: one `compose.yml` per repo, fully isolated
 
 This follows the template's §4: the standalone Docker test path.
 
 - **Every repo has exactly one Compose file, `compose.yml`, at the root** (D29), with the template's profiles:
-  - **dev** (the default): dependencies only, for Robin's native inner loop. The flow never uses it.
+  - **dev** (the default): dependencies only, for the native inner loop. The flow never uses it.
   - **test** (`just test-docker`): applicable test suites in containers built from each actual app's **test target**, against throwaway dependencies such as `db-test` when a database exists.
   - **full** (`just full`): production images and throwaway dependencies, with migrations on start when applicable and health waits.
   - The **smoke** run uses the production images and throwaway dependencies.
   - There is no second Compose file and no override file.
-- **The flow always uses the Docker path, never the host path.** The host inner loop (`just test`, `just dev`) is Robin's, for working by hand. Every agent test run, red/green evidence and gate uses the test and full profiles plus smoke, inside the slice's sandbox.
+- **The flow always uses the Docker path, never the host path.** The host inner loop (`just test`, `just dev`) is for working by hand. Every agent test run, red/green evidence and gate uses the test and full profiles plus smoke, inside the slice's sandbox.
 - **Test targets, not runtime images.** Test containers build from a test target in each app's Dockerfile (the dev environment plus source, never shipped). Runtime images exclude dev dependencies and tests.
 - **Test databases are guarded.** Where a database exists, tests refuse to run against one whose name doesn't end in `_test`.
 - **Compose is for development and testing only, never production.** GitHub Actions builds, scans and deploys each app's runtime image separately. Production databases and services are external or run as separate services.
 - **Nothing is assumed from the host.** Test env values are committed dummies, and real secrets are never needed. No host ports are published, and the caller sets the project name (`-p <id>`).
 - **Mountpoints inside the worktree are oc-sandbox's, not the app's.** `compose.yml` may freely use bind mounts with nested volumes (`.venv`, `node_modules`, caches), anonymous or named; oc-sandbox's preflight materializes those host paths as the invoking user before the daemon can create them as root (§7.2). No app-side preflight, permission fixup or removal workaround belongs in an app repo.
 - **GitHub Actions runs the same test and smoke path on every PR** as the final gate (`ci-ok`).
-- **Browser E2E in Docker when applicable (D32).** A repo with browser flows has an `e2e` service in the test profile: the official Playwright image, pinned to the repo's `@playwright/test` version, running against the full-profile production images over the Compose network. This is the agents' only E2E path, and `just e2e` stays Robin's host path.
-- **The flow calls Compose directly (D31).** Commands are declared in `AGENTS.md`, never `just`. An optional `justfile` wraps the same commands for Robin.
+- **Browser E2E in Docker when applicable (D32).** A repo with browser flows has an `e2e` service in the test profile: the official Playwright image, pinned to the repo's `@playwright/test` version, running against the full-profile production images over the Compose network. This is the agents' only E2E path, and `just e2e` stays the host path.
+- **The flow calls Compose directly (D31).** Commands are declared in `AGENTS.md`, never `just`. An optional `justfile` wraps the same commands for working by hand.
 
 ### 9.3 What lives in an app repo, and what doesn't (D33)
 
@@ -394,13 +394,13 @@ test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
 
 **CI:** the PR gate runs the same isolated Compose test run. A final aggregate job (`ci-ok`) is the single required check. Image build and deploy workflows are separate and outside this flow.
 
-**Branch protection on `main`:** require `ci-ok`, 1 approving review (Robin) and resolved conversations from any PR review tool. No force push.
+**Branch protection on `main`:** require `ci-ok`, 1 approving review from a human reviewer and resolved conversations from any PR review tool. No force push.
 
 **PR review tools:** any GitHub app or reviewer may create review threads — for example CodeRabbit, Kilo, Copilot or a security scanner. The monitor does not filter by author or tool, and no review CLI runs locally.
 
 ## 10. Sandbox sidecar contract (implemented in opencode-server)
 
-The sidecar is a container on the internal network. It is the **only** container that mounts `/var/run/docker.sock`. All calls require `Authorization: Bearer <OC_SANDBOX_TOKEN>`, which Robin sets.
+The sidecar is a container on the internal network. It is the **only** container that mounts `/var/run/docker.sock`. All calls require `Authorization: Bearer <OC_SANDBOX_TOKEN>`, which the operator sets.
 
 | Method | Path                      | Body                  | Result                                                                                                                                                                                                                                                               |
 | ------ | ------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -417,12 +417,12 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 ## 11. What opencode-server must provide
 
 - OpenCode 2.3.0, pinned.
-- `CONFIG_REPO=https://github.com/roborew/opencode-config-v2.git` and `CONFIG_REF=<tag or main>`, cloned into the config directory.
+- `CONFIG_REPO=https://github.com/OWNER/opencode-config-v2.git` and `CONFIG_REF=<tag or main>`, cloned into the config directory.
 - Server-only overrides, merged on top in the 2.0 shape: the gitdir rewrite plugin (so host Git tools can open worktrees), the worktree delete guard, the localhost → host rewrite plugin, and `OC_SANDBOX_BACKEND=sysbox`, `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN`.
 - The sidecar from §10. The OpenCode container must not mount the Docker socket.
 - No local PR-review CLI, and no preview/tunnel settings.
 
-## 12. Environment and secrets (Robin enters every value himself)
+## 12. Environment and secrets (the user enters every value)
 
 | Name                                 | Where                           | Purpose                                               |
 | ------------------------------------ | ------------------------------- | ----------------------------------------------------- |
@@ -432,7 +432,7 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 | `MCPJUNGLE_URL`                      | env (required)                  | absolute MCPJungle gateway URL (`https://<host>/mcp`) |
 | `MCPJUNGLE_TOKEN`                    | env (required)                  | bearer token for the MCPJungle gateway                |
 | `OPENCODE_WORKTREES_DIR`             | env (default `~/.opencode-worktrees`) | root for slice worktrees                        |
-| Real app secrets                     | Robin's secrets manager         | never needed for tests (§9.2), never pulled by agents |
+| Real app secrets                     | The secrets manager         | never needed for tests (§9.2), never pulled by agents |
 | `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                      | sidecar access                                        |
 | PR review apps (optional)            | GitHub, per repo                | review threads from any tool                          |
 
@@ -455,4 +455,4 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 - Compare directory identity (device and inode), not just the path, before removing anything under the worktree root.
 - Tell "server down" apart from "not a git worktree" in error messages.
 - Agents never call `git worktree`, `docker` or `sandbox` directly; only plugins do.
-- Merges are done by Robin on GitHub, never locally by an agent.
+- Merges are done by a human on GitHub, never locally by an agent.

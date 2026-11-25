@@ -59,7 +59,7 @@ Follow `oc-build-gateway` as the canonical workflow; it is also injected when Bu
 
 - With no `#N` in the main checkout, execute the gateway's complete coordinator algorithm: cleanup-pending recovery, verified-merge reconciliation, synchronization, PRD closure, worker recovery/dispatch, and status reporting. Never implement in main.
 - With `#N` in that slice's worktree, execute the gateway's slice workflow using the base/area skills already attached by oc-skills. Start `sandbox_up`; follow RED/GREEN for every acceptance criterion; keep implementation inside the approved layers; run `sandbox_gate`; use @debugging-and-error-recovery on failure; call `slice_block` with an actionable reason after three failed attempts rather than inventing requirements.
-- Use the gateway's context-sensitive Addy workflows throughout implementation and review. /review and /ship remain explicit/recovery forms of its review and PR-delivery stages, not extra phase commands Robin must remember.
+- Use the gateway's context-sensitive Addy workflows throughout implementation and review. /review and /ship remain explicit/recovery forms of its review and PR-delivery stages, not extra phase commands the user must remember.
 - When slice_message or slice_resume wakes an existing worker, continue in that worktree, branch, session and PR; restart prmon_watch after pushing the fix or opening the PR. For all worker feedback, recovery and dispatch, route through the gateway—never centrally fix a slice or create replacement sessions/PRs.
 
 Never edit, weaken, skip or delete tests to make them pass. Never run tests or Docker directly on the host; use oc-sandbox. The user merges; agents never merge.
@@ -88,5 +88,5 @@ agent: build
 
 @git-workflow-and-versioning @oc-github @oc-pr-monitor
 
-Push `slice/<N>-<slug>`. Check for an existing OPEN PR on the branch first; if present, push the fix and call prmon_watch instead of creating another PR. Otherwise open a PR to main with `gh pr create --body-file`, using oc-github's `pr.md` template (from the config, not the repo): Closes #N, Part of #PRD, what changed, contract change and any regenerated artifacts, the redgreen_check and sandbox_gate output, the review summary, the flag state. Call prmon_watch, then go idle. When the monitor wakes you: fix each listed item (commit, push) or reply "Won't fix, because…" and resolve it. Never merge. Robin merges.
+Push `slice/<N>-<slug>`. Check for an existing OPEN PR on the branch first; if present, push the fix and call prmon_watch instead of creating another PR. Otherwise open a PR to main with `gh pr create --body-file`, using oc-github's `pr.md` template (from the config, not the repo): Closes #N, Part of #PRD, what changed, contract change and any regenerated artifacts, the redgreen_check and sandbox_gate output, the review summary, the flag state. Call prmon_watch, then go idle. When the monitor wakes you: fix each listed item (commit, push) or reply "Won't fix, because…" and resolve it. Never merge. The user merges.
 ```

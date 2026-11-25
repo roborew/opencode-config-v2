@@ -537,7 +537,7 @@ describe("slice question recording and coordinator answers", () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 
-  it("does not settle a READY slice waiting for Robin's review", async () => {
+  it("does not settle a READY slice waiting for user review", async () => {
     const { tools, prompt } = await setupWorktree(record())
 
     const result = await tools.get("resume").execute({ issue: 7, answer: "go on" }, { sessionID: "coordinator" })

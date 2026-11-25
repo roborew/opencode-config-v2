@@ -472,7 +472,7 @@ export default Plugin.define({
             return { content: `BLOCKED: worktree creation failed — ${error?.message ?? error} (${cls.hint})` }
           }
 
-          // .env copies for Robin's convenience: file names only, never values; tests never depend on them (§9.2)
+          // .env copies for convenience: file names only, never values; tests never depend on them (§9.2)
           const copied: string[] = []
           for (const file of envFilesToCopy(canonical)) {
             try {
@@ -564,7 +564,7 @@ export default Plugin.define({
           return {
             content:
               `slice #${input.issue} started: branch ${branch}, worktree ${directory}, session ${sessionID}` +
-              (copied.length ? ` (copied for Robin: ${copied.join(", ")})` : ""),
+              (copied.length ? ` (copied: ${copied.join(", ")})` : ""),
           }
         },
       )
@@ -889,7 +889,7 @@ export default Plugin.define({
 
       tool(
         "finish",
-        "After Robin merges the PR: verify the worktree is clean and pushed, tear down its sandbox, remove the worktree and the local branch. Refuses dirty or unpushed worktrees; the device/inode guard protects the worktree root.",
+        "After the user merges the PR: verify the worktree is clean and pushed, tear down its sandbox, remove the worktree and the local branch. Refuses dirty or unpushed worktrees; the device/inode guard protects the worktree root.",
         { issue: { type: "number" } },
         async (input: { issue: number }, context) => {
           const dir = await sessionDir(context.sessionID)

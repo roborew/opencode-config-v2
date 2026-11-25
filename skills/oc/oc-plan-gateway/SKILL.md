@@ -11,7 +11,7 @@ Only `using-agent-skills` and this slim gateway are attached on every prompt. Th
 
 Use read-only `explore`/`general` research to locate the current spec, PRD, decisions, and relevant code.
 
-- **No approved spec for a new project, feature, significant change, or delta:** start **Define**, even when the user invoked `/plan` or merely selected Plan. Never ask Robin to invoke `/spec` separately.
+- **No approved spec for a new project, feature, significant change, or delta:** start **Define**, even when the user invoked `/plan` or merely selected Plan. Never ask the user to invoke `/spec` separately.
 - **Approved spec, or PRD verifiably linked to an approved spec, without an approved slice breakdown:** resume at **Plan slices**. If an existing PRD cannot prove that its spec was approved, stay in Define and establish the spec/approval before any slicing.
 - **Approved slice breakdown:** report the ready handoff; dismantling or replanning it needs an explicit request.
 - **Small planning question:** answer directly without manufacturing a lifecycle. When uncertain whether a change is significant, ask rather than silently skipping the spec.

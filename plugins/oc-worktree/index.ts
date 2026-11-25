@@ -168,6 +168,25 @@ export default Plugin.define({
       return true
     }
 
+    /**
+     * A slice worktree session never waits on the human. OpenCode's static
+     * config cannot express this: the same build agent coordinates in the main
+     * checkout, so the question tool is denied on the worker session itself —
+     * session rules are evaluated after the agent's rules and are inherited by
+     * child sessions. Workers ask through slice_block and are answered through
+     * slice_resume instead. Idempotent, so it doubles as the legacy backfill.
+     */
+    const denyWorkerQuestions = async (sessionID: string) => {
+      try {
+        await ctx.session.update({
+          sessionID,
+          permissions: [{ action: "question", resource: "*", effect: "deny" }],
+        })
+      } catch (error: any) {
+        console.error(`[oc-worktree] could not deny question on worker session ${sessionID}:`, error?.message ?? error)
+      }
+    }
+
     const issueInfo = (repoDir: string, issue: number): IssueInfo | { error: string } => {
       const res = gh(repoDir, `issue view ${issue} --json number,title,labels,state,body`)
       if (res.code !== 0) return { error: `gh issue view ${issue} failed: ${res.out.trim().slice(0, 200)}` }
@@ -307,6 +326,7 @@ export default Plugin.define({
               })
               const sessionID = session.id ?? session.sessionID
               if (!sessionID) throw new Error("session create returned no session ID")
+              await denyWorkerQuestions(sessionID)
               await ctx.session.command({ sessionID, name: "build", text: `#${input.issue}` })
               const saved = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
                 if (!current) return undefined
@@ -456,6 +476,7 @@ export default Plugin.define({
             })
             sessionID = session.id ?? session.sessionID
             if (!sessionID) throw new Error("session create returned no session ID")
+            await denyWorkerQuestions(sessionID)
             await ctx.session.command({ sessionID, name: "build", text: `#${input.issue}` })
             const saved = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
               if (!current) return undefined
@@ -498,6 +519,8 @@ export default Plugin.define({
         const dir = await sessionDir(context.sessionID)
         if (dir === canonical && context.sessionID) {
           for (const record of slices) {
+            // Legacy workers created before the question deny: re-assert it.
+            if (record.sessionID) await denyWorkerQuestions(record.sessionID)
             if (!record.coordinatorSessionID || record.pendingLabel) {
               const current = readSlice<SliceRecord>(canonical, record.issue)
               if (!current) continue
@@ -522,7 +545,7 @@ export default Plugin.define({
         }
         if (slices.length === 0) return { content: "no active slices" }
         const lines = slices.map(
-          (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}${s.blockedReason ? ` — reason: ${s.blockedReason}` : ""}${s.pendingLabel ? ` — label retry pending: ${s.pendingLabel}` : ""}${s.syncPending ? " — sync pending" : ""}${s.pushPending ? " — push pending" : ""}`,
+          (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}${s.blockedReason ? ` — reason: ${s.blockedReason}` : ""}${s.blockedQuestion ? ` — question: ${s.blockedQuestion}` : ""}${s.pendingLabel ? ` — label retry pending: ${s.pendingLabel}` : ""}${s.syncPending ? " — sync pending" : ""}${s.pushPending ? " — push pending" : ""}`,
         )
         return { content: `slice_status:\n${lines.join("\n")}` }
       })
@@ -585,9 +608,12 @@ export default Plugin.define({
 
       tool(
         "resume",
-        "Resume a BLOCKED slice from the main checkout after the user resolves or replans it. Wakes the existing worker in the same worktree, branch and PR.",
-        { issue: { type: "number", description: "the slice issue number" } },
-        async (input: { issue: number }, context) => {
+        "Resume a BLOCKED slice from the main checkout after the user resolves or replans it, carrying the coordinator's answer to a worker question. Wakes the existing worker in the same worktree, branch and PR. With `answer` on a building/in-review slice it also settles a worker stuck on a question form: the pending form is cancelled and the answer is delivered to the same session.",
+        {
+          issue: { type: "number", description: "the slice issue number" },
+          answer: { type: "string", description: "the coordinator's answer or replan for the slice's question; required when the worker asked a question" },
+        },
+        async (input: { issue: number; answer?: string }, context) => {
           let dir: string | undefined
           try {
             const session: any = context.sessionID ? await ctx.session.get({ sessionID: context.sessionID }) : undefined
@@ -598,7 +624,14 @@ export default Plugin.define({
           const record = readSlice<SliceRecord>(canonical, input.issue)
           if (!record) return { content: `BLOCKED: no active slice record for #${input.issue}` }
           if (!record.sessionID) return { content: `BLOCKED: slice #${input.issue} has no worker session; retry slice_start to recover it` }
-          if (record.state !== "blocked") return { content: `slice #${input.issue} is ${record.state}, not BLOCKED; no resume needed` }
+          const answer = input.answer?.trim()
+          const settleStuckWorker = record.state !== "blocked" && Boolean(answer) && (record.state === "building" || record.state === "in-review")
+          if (record.state !== "blocked" && !settleStuckWorker) {
+            return { content: `slice #${input.issue} is ${record.state}, not BLOCKED; no resume needed` }
+          }
+          if (record.state === "blocked" && record.blockedQuestion && !answer) {
+            return { content: `BLOCKED: slice #${input.issue} is blocked on the question "${record.blockedQuestion}". Call slice_resume with the coordinator's answer; a replan can be phrased as the answer.` }
+          }
           const pr = gh(canonical, `pr view ${JSON.stringify(record.branch)} --json state,url`)
           if (pr.code === 0) {
             if (String(JSON.parse(pr.out || "{}").state).toUpperCase() !== "OPEN") {
@@ -615,14 +648,51 @@ export default Plugin.define({
               return { content: `BLOCKED: the PR for slice #${input.issue} is ${nonOpen.state}; post-merge work needs a new slice` }
             }
           }
+          if (settleStuckWorker) {
+            const text = [
+              `The central Build coordinator settled slice #${input.issue} and resumed this existing worker session.`,
+              answer!,
+              "Continue in this existing worktree, branch, session and PR; never create a replacement. If a PR already exists, run the normal verification, review and ship flow, then restart its prmon_watch. A pending user question form, if any, was cancelled — never present one; route further questions through slice_block.",
+            ].join("\n\n")
+            try {
+              // Cancel whatever the worker is stuck on (a pending question form)
+              // so the queued answer can wake the same session.
+              await ctx.session.interrupt({ sessionID: record.sessionID, resume: false })
+            } catch (error: any) {
+              console.error(`[oc-worktree] interrupt before settle failed for slice #${input.issue}:`, error?.message ?? error)
+            }
+            try {
+              await ctx.session.prompt({ sessionID: record.sessionID, text, delivery: "queue" })
+            } catch (error: any) {
+              return { content: `BLOCKED: could not wake the worker for slice #${input.issue}: ${error?.message ?? error}` }
+            }
+            return { content: `answer delivered to the existing worker of slice #${input.issue}; the slice remains ${record.state}` }
+          }
           const observedBlocker = record.blockedRevision
-          const text = `The blocker for slice #${input.issue} has been resolved or replanned. Resume work in the existing worktree and branch. Follow the current /build #${input.issue} workflow; if a PR already exists, run the normal verification, review and ship flow, then restart its prmon_watch. Do not create a replacement worktree or PR.`
+          let text: string
+          if (record.blockedQuestion) {
+            text = [
+              `The central Build coordinator answered the question slice #${input.issue} was blocked on:`,
+              `Question: ${record.blockedQuestion}`,
+              `Answer: ${answer}`,
+              `Resume work in the existing worktree and branch. Follow the current /build #${input.issue} workflow; if a PR already exists, run the normal verification, review and ship flow, then restart its prmon_watch. Do not create a replacement worktree or PR. A pending user question form, if any, was cancelled — never present one; route further questions through slice_block.`,
+            ].join("\n\n")
+            try {
+              await ctx.session.interrupt({ sessionID: record.sessionID, resume: false })
+            } catch (error: any) {
+              console.error(`[oc-worktree] interrupt before answer failed for slice #${input.issue}:`, error?.message ?? error)
+            }
+          } else if (answer) {
+            text = `The blocker for slice #${input.issue} has been resolved or replanned.\n\nCoordinator note: ${answer}\n\nResume work in the existing worktree and branch. Follow the current /build #${input.issue} workflow; if a PR already exists, run the normal verification, review and ship flow, then restart its prmon_watch. Do not create a replacement worktree or PR.`
+          } else {
+            text = `The blocker for slice #${input.issue} has been resolved or replanned. Resume work in the existing worktree and branch. Follow the current /build #${input.issue} workflow; if a PR already exists, run the normal verification, review and ship flow, then restart its prmon_watch. Do not create a replacement worktree or PR.`
+          }
           try {
             await ctx.session.prompt({ sessionID: record.sessionID, text, delivery: "queue" })
           } catch (error: any) {
             return { content: `BLOCKED: could not wake the worker for slice #${input.issue}: ${error?.message ?? error}` }
           }
-          const resumed = await setSliceState(record, "building", true, { blockedReason: undefined, blockedRevision: undefined }, observedBlocker)
+          const resumed = await setSliceState(record, "building", true, { blockedReason: undefined, blockedRevision: undefined, blockedQuestion: undefined }, observedBlocker)
           if (!resumed) return { content: `BLOCKED: slice #${input.issue} reported a newer blocker while resume was pending; it remains BLOCKED and was not resumed` }
           return { content: `slice #${input.issue} resumed in its existing worker${record.pendingLabel ? " (GitHub label retry pending; slice_status will retry)" : ""}` }
         },
@@ -630,12 +700,13 @@ export default Plugin.define({
 
       tool(
         "block",
-        "Mark this slice BLOCKED from its own worktree, comment on the issue, and notify the central build session with the reason.",
+        "Mark this slice BLOCKED from its own worktree, comment on the issue, and notify the central build session with the reason. Pass `question` to surface an actionable question the coordinator answers through slice_resume; the worker then goes idle in this same session.",
         {
           issue: { type: "number", description: "the slice issue number" },
-          reason: { type: "string", description: "the actionable blocker or spec gap" },
+          reason: { type: "string", description: "the actionable blocker or spec gap; with a question, the context behind it" },
+          question: { type: "string", description: "an actionable question for the central coordinator — answered through slice_resume" },
         },
-        async (input: { issue: number; reason: string }, context) => {
+        async (input: { issue: number; reason: string; question?: string }, context) => {
           const dir = await sessionDir(context.sessionID)
           const record = readSlice<SliceRecord>(canonical, input.issue)
           if (!record) return { content: `BLOCKED: no slice record for #${input.issue}` }
@@ -645,12 +716,18 @@ export default Plugin.define({
           if (!input.reason.trim()) return { content: "BLOCKED: a reason is required" }
 
           const reason = input.reason.trim()
-          if (!await setSliceState(record, "blocked", false, { blockedReason: reason, blockedRevision: randomUUID(), syncClaim: undefined, syncClaimPID: undefined })) {
+          const question = input.question?.trim() || undefined
+          if (!await setSliceState(record, "blocked", false, { blockedReason: reason, blockedQuestion: question, blockedRevision: randomUUID(), syncClaim: undefined, syncClaimPID: undefined })) {
             return { content: `BLOCKED: slice #${input.issue} no longer exists; blocker was not recorded and no notification was sent` }
           }
-          const comment = gh(canonical, `issue comment ${input.issue} --body ${shellQuote(`BLOCKED: ${reason}`)}`)
+          const commentBody = question
+            ? `BLOCKED — coordinator question: ${question}\n\nContext: ${reason}`
+            : `BLOCKED: ${reason}`
+          const comment = gh(canonical, `issue comment ${input.issue} --body ${shellQuote(commentBody)}`)
           const commentNote = comment.code === 0 ? "commented on its issue" : `issue comment failed (${comment.out.trim().slice(0, 200)}); the reason is retained in the slice record`
-          const text = `Slice #${input.issue} is BLOCKED: ${reason}${record.prURL ? `\nPR: ${record.prURL}` : ""}\nThe user should take this back to plan if it is a spec gap, or resolve it and resume the slice.`
+          const text = question
+            ? `Slice #${input.issue} asks the central Build coordinator: ${question}\nContext: ${reason}${record.prURL ? `\nPR: ${record.prURL}` : ""}\nAnswer it with slice_resume({ issue: ${input.issue}, answer }) — a replan can be phrased as the answer. The worker stays idle in its existing session until then.`
+            : `Slice #${input.issue} is BLOCKED: ${reason}${record.prURL ? `\nPR: ${record.prURL}` : ""}\nThe user should take this back to plan if it is a spec gap, or resolve it and resume the slice.`
           if (!record.coordinatorSessionID) {
             return { content: `slice #${input.issue} marked BLOCKED and ${commentNote}, but no coordinator session is recorded. Run slice_status from the central build session to backfill it; the durable slice record retains the blocker.` }
           }
@@ -660,7 +737,9 @@ export default Plugin.define({
             console.error(`[oc-worktree] BLOCKED notify failed for slice #${input.issue}:`, error?.message ?? error)
             return { content: `slice #${input.issue} marked BLOCKED and ${commentNote}, but coordinator notification failed: ${error?.message ?? error}. The durable slice record retains the blocker.` }
           }
-          return { content: `slice #${input.issue} marked BLOCKED, ${commentNote}, and reported to the central build session; go idle` }
+          return { content: question
+            ? `slice #${input.issue} is BLOCKED pending the coordinator's answer; the question was recorded, ${commentNote}, and reported to the central build session. Go idle — the answer arrives through slice_resume in this same session.`
+            : `slice #${input.issue} marked BLOCKED, ${commentNote}, and reported to the central build session; go idle` }
         },
       )
 

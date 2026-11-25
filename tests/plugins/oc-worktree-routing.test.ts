@@ -52,6 +52,8 @@ async function setupWorktree(record: SliceRecord) {
   const prompt = vi.fn(async (_input: any) => undefined)
   const create = vi.fn(async () => ({ id: "recovered-7" }))
   const command = vi.fn(async () => undefined)
+  const update = vi.fn(async (_input: any) => undefined)
+  const interrupt = vi.fn(async () => ({ interrupted: false }))
   const ctx = {
     options: { worktreeRoot: "/tmp" },
     location: { directory: canonical, project: { id: "project", canonical } },
@@ -70,6 +72,8 @@ async function setupWorktree(record: SliceRecord) {
       prompt,
       create,
       command,
+      update,
+      interrupt,
     },
   }
 
@@ -392,5 +396,153 @@ describe("slice worker BLOCKED reporting", () => {
     expect(result.content).toContain("notification failed")
     expect(result.content).toContain("session unavailable")
     expect(result.content).not.toContain("reported to the central build session; go idle")
+  })
+})
+
+describe("slice worker question deny", () => {
+  const denyRule = { action: "question", resource: "*", effect: "deny" }
+
+  it("denies the question tool on a recovered worker session", async () => {
+    const withoutSession = { ...record(), sessionID: undefined }
+    const { tools, ctx } = await setupWorktree(withoutSession)
+
+    await tools.get("start").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(ctx.session.update).toHaveBeenCalledWith({
+      sessionID: "recovered-7",
+      permissions: [denyRule],
+    })
+  })
+
+  it("re-asserts the question deny on legacy worker sessions from slice_status", async () => {
+    const legacy = { ...record(), sessionID: "worker-7" }
+    const { tools, ctx } = await setupWorktree(legacy)
+
+    await tools.get("status").execute({}, { sessionID: "coordinator" })
+
+    expect(ctx.session.update).toHaveBeenCalledWith({
+      sessionID: "worker-7",
+      permissions: [denyRule],
+    })
+  })
+
+  it("does not touch worker permissions from outside the main checkout", async () => {
+    const { tools, ctx } = await setupWorktree(record())
+
+    await tools.get("status").execute({}, { sessionID: "worker-7" })
+
+    expect(ctx.session.update).not.toHaveBeenCalled()
+  })
+})
+
+describe("slice question recording and coordinator answers", () => {
+  beforeEach(() => {
+    mocks.execSync.mockReset()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view")) {
+        return Buffer.from(JSON.stringify({ state: "OPEN", url: record().prURL }))
+      }
+      return Buffer.from("")
+    })
+  })
+
+  it("records the question, comments on the issue and notifies the coordinator with the answer path", async () => {
+    const { tools, storage, prompt } = await setupWorktree(record())
+
+    const result = await tools.get("block").execute(
+      { issue: 7, reason: "local main is behind origin/main", question: "May I fast-forward the local main ref?" },
+      { sessionID: "worker-7" },
+    )
+
+    expect(result.content).toContain("BLOCKED")
+    expect(storage.values.get("slices/7")).toMatchObject({
+      state: "blocked",
+      blockedQuestion: "May I fast-forward the local main ref?",
+      blockedReason: "local main is behind origin/main",
+    })
+    const comment = mocks.execSync.mock.calls.find(([command]) => String(command).includes("gh issue comment"))![0]
+    expect(String(comment)).toContain("May I fast-forward the local main ref?")
+    expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "coordinator", delivery: "queue" }))
+    const notification = prompt.mock.calls[0]![0]
+    expect(notification.text).toContain("May I fast-forward the local main ref?")
+    expect(notification.text).toContain("slice_resume")
+    expect(notification.text).toContain("answer")
+  })
+
+  it("keeps the plain blocker notification unchanged when no question is asked", async () => {
+    const { tools, prompt } = await setupWorktree(record())
+
+    await tools.get("block").execute({ issue: 7, reason: "spec gap" }, { sessionID: "worker-7" })
+
+    const notification = prompt.mock.calls[0]![0]
+    expect(notification.text).toContain("Slice #7 is BLOCKED: spec gap")
+    expect(notification.text).not.toContain("asks the central Build coordinator")
+  })
+
+  it("requires the coordinator's answer before resuming a question-blocked slice", async () => {
+    const blocked = { ...record(), state: "blocked" as const, blockedReason: "stale main", blockedQuestion: "May I fast-forward the local main ref?" }
+    const { tools, prompt } = await setupWorktree(blocked)
+
+    const result = await tools.get("resume").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("answer")
+    expect(result.content).toContain("May I fast-forward the local main ref?")
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it("delivers the question and answer to the same existing worker session", async () => {
+    const blocked = { ...record(), state: "blocked" as const, blockedReason: "stale main", blockedQuestion: "May I fast-forward the local main ref?", prURL: undefined }
+    const { tools, storage, prompt, ctx } = await setupWorktree(blocked)
+
+    const result = await tools.get("resume").execute(
+      { issue: 7, answer: "Yes — fast-forward the local main ref." },
+      { sessionID: "coordinator" },
+    )
+
+    expect(result.content).toContain("resumed")
+    expect(ctx.session.interrupt).toHaveBeenCalledWith({ sessionID: "worker-7", resume: false })
+    expect(prompt).toHaveBeenCalledTimes(1)
+    const message = prompt.mock.calls[0]![0]
+    expect(message.sessionID).toBe("worker-7")
+    expect(message.text).toContain("May I fast-forward the local main ref?")
+    expect(message.text).toContain("Yes — fast-forward the local main ref.")
+    const saved = storage.values.get("slices/7")
+    expect(saved.state).toBe("building")
+    expect(saved.blockedQuestion).toBeUndefined()
+  })
+
+  it("settles a worker stuck on a question form without creating anything new", async () => {
+    const building = { ...record(), state: "building" as const }
+    const { tools, storage, prompt, ctx } = await setupWorktree(building)
+
+    const result = await tools.get("resume").execute(
+      { issue: 7, answer: "Yes — fast-forward the local main ref." },
+      { sessionID: "coordinator" },
+    )
+
+    expect(result.content).toContain("answer delivered")
+    expect(ctx.session.interrupt).toHaveBeenCalledWith({ sessionID: "worker-7", resume: false })
+    const message = prompt.mock.calls[0]![0]
+    expect(message.sessionID).toBe("worker-7")
+    expect(message.text).toContain("Yes — fast-forward the local main ref.")
+    expect(storage.values.get("slices/7").state).toBe("building")
+  })
+
+  it("still refuses a plain resume for a slice that is not BLOCKED", async () => {
+    const { tools, prompt } = await setupWorktree(record())
+
+    const result = await tools.get("resume").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("not BLOCKED")
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it("does not settle a READY slice waiting for Robin's review", async () => {
+    const { tools, prompt } = await setupWorktree(record())
+
+    const result = await tools.get("resume").execute({ issue: 7, answer: "go on" }, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("not BLOCKED")
+    expect(prompt).not.toHaveBeenCalled()
   })
 })

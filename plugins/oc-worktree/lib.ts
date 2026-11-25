@@ -131,6 +131,7 @@ export type SliceRecord = {
   prURL?: string
   pendingLabel?: string
   blockedReason?: string
+  blockedQuestion?: string
   blockedRevision?: string
   syncPending?: boolean
   syncClaim?: string

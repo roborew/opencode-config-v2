@@ -546,3 +546,106 @@ describe("slice question recording and coordinator answers", () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 })
+
+describe("question deny failure handling and settle races", () => {
+  beforeEach(() => {
+    mocks.execSync.mockReset()
+    mocks.execSync.mockImplementation((command: string) => {
+      if (command.includes("gh pr view")) {
+        return Buffer.from(JSON.stringify({ state: "OPEN", url: record().prURL }))
+      }
+      return Buffer.from("")
+    })
+  })
+
+  it("does not dispatch /build when the deny fails, and reuses the pending session on retry", async () => {
+    const withoutSession = { ...record(), sessionID: undefined }
+    const { tools, storage, ctx } = await setupWorktree(withoutSession)
+    ctx.session.update.mockRejectedValueOnce(new Error("session unavailable"))
+
+    const refused = await tools.get("start").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(refused.content).toContain("BLOCKED")
+    expect(refused.content).toContain("not dispatched")
+    expect(ctx.session.command).not.toHaveBeenCalled()
+    expect(storage.values.get("slices/7")).toMatchObject({ sessionID: "recovered-7", dispatchPending: true })
+
+    const retried = await tools.get("start").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(retried.content).toContain("recovered worker session recovered-7")
+    expect(retried.content).toContain("/build dispatched")
+    expect(ctx.session.command).toHaveBeenCalledWith({ sessionID: "recovered-7", name: "build", text: "#7" })
+    expect(storage.values.get("slices/7").dispatchPending).toBeUndefined()
+  })
+
+  it("keeps refusing while the deny still cannot be installed", async () => {
+    const pending = { ...record(), sessionID: "recovered-7", dispatchPending: true }
+    const { tools, storage, ctx } = await setupWorktree(pending)
+    ctx.session.update.mockRejectedValue(new Error("session unavailable"))
+
+    const result = await tools.get("start").execute({ issue: 7 }, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("BLOCKED")
+    expect(result.content).toContain("still not installed")
+    expect(ctx.session.command).not.toHaveBeenCalled()
+    expect(storage.values.get("slices/7").dispatchPending).toBe(true)
+  })
+
+  it("surfaces a failed deny re-assert in slice_status", async () => {
+    const legacy = { ...record(), sessionID: "worker-7" }
+    const { tools, ctx } = await setupWorktree(legacy)
+    ctx.session.update.mockRejectedValueOnce(new Error("session unavailable"))
+
+    const result = await tools.get("status").execute({}, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("question deny re-assert failed")
+  })
+
+  it("shows a pending worker dispatch in slice_status", async () => {
+    const pending = { ...record(), sessionID: "worker-7", dispatchPending: true }
+    const { tools } = await setupWorktree(pending)
+
+    const result = await tools.get("status").execute({}, { sessionID: "coordinator" })
+
+    expect(result.content).toContain("dispatch pending")
+    expect(result.content).toContain("retry slice_start")
+  })
+
+  it("does not deliver a settle answer over a newer blocker", async () => {
+    const building = { ...record(), state: "building" as const }
+    const { tools, storage, prompt, ctx } = await setupWorktree(building)
+    ctx.session.interrupt.mockImplementationOnce(async () => {
+      storage.values.set("slices/7", {
+        ...building,
+        state: "blocked" as const,
+        blockedReason: "new question arrived",
+        blockedRevision: "rev-2",
+      })
+      return { interrupted: false }
+    })
+
+    const result = await tools.get("resume").execute(
+      { issue: 7, answer: "Yes — fast-forward the local main ref." },
+      { sessionID: "coordinator" },
+    )
+
+    expect(result.content).toContain("changed state")
+    expect(result.content).toContain("new question arrived")
+    expect(prompt).not.toHaveBeenCalled()
+    expect(storage.values.get("slices/7").state).toBe("blocked")
+  })
+
+  it("still delivers the settle answer when nothing changed during the interrupt", async () => {
+    const building = { ...record(), state: "building" as const }
+    const { tools, prompt } = await setupWorktree(building)
+
+    const result = await tools.get("resume").execute(
+      { issue: 7, answer: "Yes — fast-forward the local main ref." },
+      { sessionID: "coordinator" },
+    )
+
+    expect(result.content).toContain("answer delivered")
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(prompt.mock.calls[0]![0].sessionID).toBe("worker-7")
+  })
+})

@@ -176,14 +176,16 @@ export default Plugin.define({
      * child sessions. Workers ask through slice_block and are answered through
      * slice_resume instead. Idempotent, so it doubles as the legacy backfill.
      */
-    const denyWorkerQuestions = async (sessionID: string) => {
+    const denyWorkerQuestions = async (sessionID: string): Promise<boolean> => {
       try {
         await ctx.session.update({
           sessionID,
           permissions: [{ action: "question", resource: "*", effect: "deny" }],
         })
+        return true
       } catch (error: any) {
         console.error(`[oc-worktree] could not deny question on worker session ${sessionID}:`, error?.message ?? error)
+        return false
       }
     }
 
@@ -259,6 +261,27 @@ export default Plugin.define({
           }
           const existing = readSlice<SliceRecord>(canonical, input.issue)
           if (existing?.sessionID) {
+            if (existing.dispatchPending) {
+              // A previous start created this session but the question deny
+              // failed, so /build was never dispatched. Reuse that session
+              // instead of creating a replacement worker.
+              if (!await denyWorkerQuestions(existing.sessionID)) {
+                return { content: `BLOCKED: slice #${existing.issue} has worker session ${existing.sessionID} with the question deny still not installed. Retry slice_start after fixing the OpenCode server; the session is reused, not replaced.` }
+              }
+              try {
+                await ctx.session.command({ sessionID: existing.sessionID, name: "build", text: `#${existing.issue}` })
+              } catch (error: any) {
+                return { content: `BLOCKED: could not dispatch /build to the pending worker session for slice #${existing.issue}: ${error?.message ?? error}. Retry slice_start.` }
+              }
+              updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+                if (!current || current.sessionID !== existing.sessionID) return current
+                current.dispatchPending = undefined
+                return current
+              })
+              ensureLabel(canonical, "status:in-progress")
+              await setSliceState(existing, "building")
+              return { content: `recovered worker session ${existing.sessionID} for slice #${existing.issue}: question deny installed and /build dispatched` }
+            }
             return { content: `slice #${input.issue} is already active (${existing.state}) in ${existing.directory}; use slice_message or slice_resume for its worker, or slice_status for its PR` }
           }
           if (existing) {
@@ -326,7 +349,23 @@ export default Plugin.define({
               })
               const sessionID = session.id ?? session.sessionID
               if (!sessionID) throw new Error("session create returned no session ID")
-              await denyWorkerQuestions(sessionID)
+              if (!await denyWorkerQuestions(sessionID)) {
+                // Fail closed: without the deny the worker could wait on the
+                // human, so /build is not dispatched. The session is kept on
+                // the record for reuse by the next slice_start.
+                const pending = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+                  if (!current) return undefined
+                  current.sessionID = sessionID
+                  current.dispatchPending = true
+                  if (current.sessionStarting === token) {
+                    current.sessionStarting = undefined
+                    current.sessionStartingPID = undefined
+                  }
+                  return current
+                })
+                if (pending && existsSync(pending.directory)) writeSliceRecordFile(pending.directory, pending)
+                return { content: `BLOCKED: worker session ${sessionID} for slice #${input.issue} was created but the question deny could not be installed, so /build was not dispatched. Retry slice_start; it reuses this session instead of creating a replacement.` }
+              }
               await ctx.session.command({ sessionID, name: "build", text: `#${input.issue}` })
               const saved = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
                 if (!current) return undefined
@@ -476,7 +515,23 @@ export default Plugin.define({
             })
             sessionID = session.id ?? session.sessionID
             if (!sessionID) throw new Error("session create returned no session ID")
-            await denyWorkerQuestions(sessionID)
+            if (!await denyWorkerQuestions(sessionID)) {
+              // Fail closed: without the deny the worker could wait on the
+              // human, so /build is not dispatched. The session is kept on
+              // the record for reuse by the next slice_start.
+              const pending = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
+                if (!current) return undefined
+                current.sessionID = sessionID
+                current.dispatchPending = true
+                if (current.sessionStarting === startupToken) {
+                  current.sessionStarting = undefined
+                  current.sessionStartingPID = undefined
+                }
+                return current
+              })
+              if (pending && existsSync(pending.directory)) writeSliceRecordFile(pending.directory, pending)
+              return { content: `BLOCKED: worker session ${sessionID} for slice #${input.issue} was created but the question deny could not be installed, so /build was not dispatched. Retry slice_start; it reuses this session instead of creating a replacement.` }
+            }
             await ctx.session.command({ sessionID, name: "build", text: `#${input.issue}` })
             const saved = updateSlice<SliceRecord>(canonical, input.issue, (current) => {
               if (!current) return undefined
@@ -517,10 +572,14 @@ export default Plugin.define({
       tool("status", "Report every active slice: issue, branch, session, state, PR. Also backfills the coordinator session on legacy records.", {}, async (_input, context) => {
         let slices = await activeSlices()
         const dir = await sessionDir(context.sessionID)
+        const denyFailures: string[] = []
         if (dir === canonical && context.sessionID) {
           for (const record of slices) {
-            // Legacy workers created before the question deny: re-assert it.
-            if (record.sessionID) await denyWorkerQuestions(record.sessionID)
+            // Legacy workers created before the question deny: re-assert it,
+            // and surface a failed re-assert instead of hiding it.
+            if (record.sessionID && !await denyWorkerQuestions(record.sessionID)) {
+              denyFailures.push(`  #${record.issue}: question deny re-assert failed on its worker session; retry slice_status after fixing the OpenCode server`)
+            }
             if (!record.coordinatorSessionID || record.pendingLabel) {
               const current = readSlice<SliceRecord>(canonical, record.issue)
               if (!current) continue
@@ -545,9 +604,9 @@ export default Plugin.define({
         }
         if (slices.length === 0) return { content: "no active slices" }
         const lines = slices.map(
-          (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}${s.blockedReason ? ` — reason: ${s.blockedReason}` : ""}${s.blockedQuestion ? ` — question: ${s.blockedQuestion}` : ""}${s.pendingLabel ? ` — label retry pending: ${s.pendingLabel}` : ""}${s.syncPending ? " — sync pending" : ""}${s.pushPending ? " — push pending" : ""}`,
+          (s) => `  #${s.issue} ${s.state} — ${s.branch} — session ${s.sessionID ?? "-"}${s.prURL ? ` — ${s.prURL}` : ""}${s.blockedReason ? ` — reason: ${s.blockedReason}` : ""}${s.blockedQuestion ? ` — question: ${s.blockedQuestion}` : ""}${s.dispatchPending ? " — worker dispatch pending (question deny not installed; retry slice_start)" : ""}${s.pendingLabel ? ` — label retry pending: ${s.pendingLabel}` : ""}${s.syncPending ? " — sync pending" : ""}${s.pushPending ? " — push pending" : ""}`,
         )
-        return { content: `slice_status:\n${lines.join("\n")}` }
+        return { content: `slice_status:\n${lines.join("\n")}${denyFailures.length ? `\n${denyFailures.join("\n")}` : ""}` }
       })
 
       tool(
@@ -660,6 +719,13 @@ export default Plugin.define({
               await ctx.session.interrupt({ sessionID: record.sessionID, resume: false })
             } catch (error: any) {
               console.error(`[oc-worktree] interrupt before settle failed for slice #${input.issue}:`, error?.message ?? error)
+            }
+            // The worker may have recorded a newer blocker while it was being
+            // interrupted; never deliver the answer over it.
+            const latest = readSlice<SliceRecord>(canonical, input.issue)
+            if (!latest || latest.state !== record.state || latest.blockedRevision !== record.blockedRevision) {
+              const reason = latest?.blockedReason
+              return { content: `BLOCKED: slice #${input.issue} changed state while the answer was being delivered${reason ? ` (new blocker: ${reason})` : ""}; the answer was not delivered. Resolve the newer blocker and call slice_resume again.` }
             }
             try {
               await ctx.session.prompt({ sessionID: record.sessionID, text, delivery: "queue" })

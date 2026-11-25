@@ -134,13 +134,14 @@ Every project needs fast, deterministic verification appropriate to its risks.
 Not every project has a browser, database, generated client, or several runtime
 images, so do not invent tests or services for absent tiers.
 
-| Tier                      | Applies when                             | What it proves                                             |
-| ------------------------- | ---------------------------------------- | ---------------------------------------------------------- |
-| Unit + integration        | Always, at the appropriate levels        | Code behaviour, including real infrastructure where useful |
-| Contract/generation drift | A generated or published contract exists | Checked-in artifacts match their source                    |
-| E2E/browser               | A browser user flow exists               | Critical flows work in a real browser                      |
-| Runtime smoke             | A deployable runtime artifact exists     | Startup, health, migrations if present, and enforced auth  |
-| Whole-system              | Multiple runtime components exist        | The built components work together                         |
+| Tier                      | Applies when                              | What it proves                                             |
+| ------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
+| Static analysis           | Lint, format, or typecheck tooling exists | Style, correctness, and type discipline before tests run   |
+| Unit + integration        | Always, at the appropriate levels         | Code behaviour, including real infrastructure where useful |
+| Contract/generation drift | A generated or published contract exists  | Checked-in artifacts match their source                    |
+| E2E/browser               | A browser user flow exists                | Critical flows work in a real browser                      |
+| Runtime smoke             | A deployable runtime artifact exists      | Startup, health, migrations if present, and enforced auth  |
+| Whole-system              | Multiple runtime components exist         | The built components work together                         |
 
 Host-native tests can be a fast human inner loop. The isolated Docker path must
 run the same applicable suites without a host language toolchain or real secrets.
@@ -157,8 +158,10 @@ repository actually has.
 Use `.github/workflows/` with actions pinned to commit SHAs. A typical PR gate
 checks formatting/linting, types, applicable tests, generated drift, dependency
 and workflow security, runtime image build/smoke, and browser E2E where relevant.
-Remove or replace checks whose subject does not exist — for example Alembic drift
-in a non-Python project or client generation in a self-contained full-stack app.
+Static checks should also run in the local coding loop and the pre-PR sandbox
+gate, not only in CI. Remove or replace checks whose subject does not exist —
+for example Alembic drift in a non-Python project or client generation in a
+self-contained full-stack app.
 
 A final `ci-ok` job can aggregate required checks so branch protection remains
 stable as jobs change. Build, deployment, promotion, and release workflows match
@@ -176,7 +179,7 @@ imaginary services.
 - [ ] API schema export, generated client, and drift checks **if that contract exists**
 - [ ] `compose.yml` models the actual system and its applicable isolated tests
 - [ ] Safe env examples and secrets handling; no committed credentials
-- [ ] Unit/integration tests plus only the applicable contract, E2E, and smoke tiers
+- [ ] Unit/integration tests plus only the applicable static-analysis, contract, E2E, and smoke tiers
 - [ ] CI and deployment jobs match the real components; `ci-ok` aggregates them
 - [ ] `docs/spec/`, `docs/decisions/`, and `docs/deployment/` established as needed
 - [ ] Repo-wide or component-scoped `.agents/skills/` placed where they apply

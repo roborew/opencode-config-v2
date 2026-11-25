@@ -1,8 +1,8 @@
 # opencode-config-v2
 
-Robin's user-level OpenCode 2.x configuration. It defines one delivery flow —
-Define → Plan → Build → Verify → Review → Ship — that behaves identically on his
-Mac and on his server, and adds custom pieces only where an external tool
+User-level OpenCode 2.x configuration. It defines one delivery flow —
+Define → Plan → Build → Verify → Review → Ship — that behaves identically on the
+Mac and on the server, and adds custom pieces only where an external tool
 (OpenCode server, GitHub, Sysbox/Docker) has to be integrated.
 
 **This repository is the OpenCode config directory.** It is not an app repo and
@@ -20,13 +20,13 @@ holds no app code.
 Each project lives in one app repo, but that repo does not have to be a
 monorepo. [`templates/project/TEMPLATE.md`](templates/project/TEMPLATE.md)
 guides both root-level single-app and multi-app architectures: a full-stack
-Next.js or TanStack Start app can use its framework-native layout, while a
+Next.js or TanStack Start app can keep its framework-native layout, while a
 React + FastAPI system might use `apps/` and share generated code through
 `packages/`. API contracts, generated clients, per-component images, and
 build tools apply only when the real architecture needs them. The common
-defaults are clear ownership, docs next to the code, and idiomatic stack
-choices. How the flow tests is defined separately by the test contract in
-`docs/plan/blueprint.md` (§7.2, §9.2).
+defaults are clear ownership, docs next to code, and idiomatic stack
+choices. How the flow tests and runs lint/typecheck services is defined
+separately by the test contract in `docs/plan/blueprint.md` (§7.2, §9.2).
 
 ## Install
 
@@ -51,11 +51,11 @@ choices. How the flow tests is defined separately by the test contract in
 The config reads these when it loads; export them in your shell profile (or let
 Infisical inject them on the server) so every session sees the same values.
 
-| Variable                 | Format                                                 | Purpose                                                                                                                                                                                                                                     |
-| ------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MCPJUNGLE_URL`          | absolute URL, e.g. `https://mcpjungle.example.com/mcp` | Endpoint of the MCPJungle gateway. Required: OpenCode substitutes an empty string when it is unset, and a remote MCP server needs an absolute URL, so the gateway cannot connect without it.                                                |
-| `MCPJUNGLE_TOKEN`        | bearer token                                           | Authenticates to the gateway. A 401 "invalid MCP client token" means it is unset or stale.                                                                                                                                                  |
-| `OPENCODE_WORKTREES_DIR` | absolute path, e.g. `~/.opencode-worktrees`             | Root for slice worktrees (the plugin expands a leading `~`). Set it explicitly: `oc-worktree` falls back to `~/.opencode-worktrees` when the value is empty, but `worktree.directory` in `opencode.jsonc` uses the value directly. |
+| Variable                 | Format                                                 | Purpose                                                                                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCPJUNGLE_URL`          | absolute URL, e.g. `https://mcpjungle.example.com/mcp` | Endpoint of the MCPJungle gateway. Required: OpenCode substitutes an empty string when it is unset, and a remote MCP server needs an absolute URL, so the gateway cannot connect without it.                                       |
+| `MCPJUNGLE_TOKEN`        | bearer token                                           | Authenticates to the gateway. A 401 "invalid MCP client token" means it is unset or stale.                                                                                                                                         |
+| `OPENCODE_WORKTREES_DIR` | absolute path, e.g. `~/.opencode-worktrees`            | Root for slice worktrees (the plugin expands a leading `~`). Set it explicitly: `oc-worktree` falls back to `~/.opencode-worktrees` when the value is empty, but `worktree.directory` in `opencode.jsonc` uses the value directly. |
 
 ### Server
 
@@ -123,7 +123,7 @@ The flow is implemented (tickets 00–08, 11): config skeleton, vendored addy
 skills, the four plugins (`oc-skills`, `oc-sandbox`, `oc-worktree`,
 `oc-pr-monitor`), the five commands, and CI config verification plus plugin
 tests. Remaining: the opencode-server work (tickets 09–10, in that repo) and the
-recorded end-to-end runs (ticket 12, with Robin). Work is tracked locally in
+recorded end-to-end runs (ticket 12). Work is tracked locally in
 `.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until the GitHub tracker
 is switched on.
 

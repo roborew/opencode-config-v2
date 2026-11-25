@@ -20,7 +20,7 @@ failed checks (name, log tail URL). For each item, either:
 2. **Decline it**: reply starting exactly with "Won't fix, because…" and resolve
    the thread.
 
-Then go idle again. Never merge; Robin merges.
+Then go idle again. Never merge; the user merges.
 
 ## Rounds and end states
 

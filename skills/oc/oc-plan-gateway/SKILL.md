@@ -1,6 +1,6 @@
 ---
 name: oc-plan-gateway
-description: Always-on Plan gateway for the OpenCode delivery flow. Routes new work through Addy's interview/spec workflows when no approved spec exists, resumes vertical-slice planning for approved specs, and completes spec PR, PRD, and issue handoffs without switching to Build.
+description: Always-on Plan gateway for the OpenCode delivery flow. Starts every new Define/spec phase with a read-only project health check, routes new work through Addy's interview/spec workflows when no approved spec exists, resumes vertical-slice planning for approved specs, and completes spec PR, PRD, and issue handoffs without switching to Build.
 ---
 
 # Plan gateway — Define + Plan
@@ -11,7 +11,7 @@ Only `using-agent-skills` and this slim gateway are attached on every prompt. Th
 
 Use read-only `explore`/`general` research to locate the current spec, PRD, decisions, and relevant code.
 
-- **No approved spec for a new project, feature, significant change, or delta:** start **Define**, even when the user invoked `/plan` or merely selected Plan. Never ask Robin to invoke `/spec` separately.
+- **No approved spec for a new project, feature, significant change, or delta:** start **Define**, even when the user invoked `/plan` or merely selected Plan. Never ask the user to invoke `/spec` separately.
 - **Approved spec, or PRD verifiably linked to an approved spec, without an approved slice breakdown:** resume at **Plan slices**. If an existing PRD cannot prove that its spec was approved, stay in Define and establish the spec/approval before any slicing.
 - **Approved slice breakdown:** report the ready handoff; dismantling or replanning it needs an explicit request.
 - **Small planning question:** answer directly without manufacturing a lifecycle. When uncertain whether a change is significant, ask rather than silently skipping the spec.
@@ -30,11 +30,19 @@ At the start of this phase, load `interview-me` and `spec-driven-development` (a
 | An approach depends on framework/API details that need official verification | `source-driven-development`     |
 | A decision deserves a durable record                                         | `documentation-and-adrs`        |
 
-1. Read the app repo's `AGENTS.md` front matter and architecture.
-2. Write the spec to `docs/spec/<slug>.md` (delta specs remain separate and reference the shipped spec) and record decisions under `docs/decisions/**` when needed.
-3. **The file must exist before requesting approval.** Show its path and contents or a faithful summary and any open questions. Do not represent a chat-only draft as a written spec.
-4. Stop and wait for explicit approval. Hedged answers are not approval; do not start planning in the turn that first presents the spec.
-5. After explicit approval, commit the spec on `spec/<slug>`, open its PR, and create the PRD through `oc-github`, linking the spec. Request any shell approval required by the permission rules. Never hand these steps to Build.
+Before drafting the spec, run the **quick project health check** — read-only, never an edit:
+
+1. Confirm the app repo has a closed `AGENTS.md` front-matter block whose `apps:` entries match the repo's real components and scoped skills.
+2. Confirm the test contract is usable: one root `compose.yml`, `test`/`full` profiles, declared commands and services, and `test_globs` that match the repo's test paths.
+3. Confirm `test.checks` declares the repo's real lint/typecheck services, derived from the repo's actual tooling and Compose services; do not invent checks the stack does not have.
+4. Record any missing or stale instruction as an explicit remediation item in the spec. Remediation goes through the normal spec → slice approval flow, or through `repo-setup` when Robin explicitly asks for a repo upgrade. Plan never edits the app repo directly.
+
+Then:
+
+1. Write the spec to `docs/spec/<slug>.md` (delta specs remain separate and reference the shipped spec) and record decisions under `docs/decisions/**` when needed.
+2. **The file must exist before requesting approval.** Show its path and contents or a faithful summary and any open questions. Do not represent a chat-only draft as a written spec.
+3. Stop and wait for explicit approval. Hedged answers are not approval; do not start planning in the turn that first presents the spec.
+4. After explicit approval, commit the spec on `spec/<slug>`, open its PR, and create the PRD through `oc-github`, linking the spec. Request any shell approval required by the permission rules. Never hand these steps to Build.
 
 Then continue to vertical slicing in this later, post-approval turn. Do not create the slice issues until their separate approval gate passes.
 

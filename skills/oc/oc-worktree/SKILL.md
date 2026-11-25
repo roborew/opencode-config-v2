@@ -12,7 +12,7 @@ One slice = one issue = one worktree off `origin/main` on branch
 
 - `slice_start({ issue })` — refuses when the issue has open blockers or no
   parallel slot is free (max 3). Creates the worktree through the plugin's own
-  worktree strategy, copies `.env*` files for Robin's convenience (paths only,
+  worktree strategy, copies `.env*` files for convenience (paths only,
   never values; tests never depend on them), saves the slice record, creates
   the session titled `#N <title>` with the user-facing `question` tool denied
   on that session, and submits `/build #N` in it. Replaces `status:ready` with

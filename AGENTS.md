@@ -11,7 +11,7 @@ Two primary modes override OpenCode's built-in agents: **plan** (Define + Plan)
 and **build** (Build → Verify → Review → Ship). The lifecycle follows addy's
 agent-skills: Define → Plan → Build → Verify → Review → Ship, trunk-based — one
 vertical slice = one issue = one worktree off `origin/main` = one PR to `main`.
-Robin approves specs and slice breakdowns, and Robin merges; agents never merge.
+The user approves specs and slice breakdowns and merges; agents never merge.
 
 Core rules in every mode:
 
@@ -19,14 +19,14 @@ Core rules in every mode:
   never on the host, never through raw `docker` or `just`.
 - Slice worktrees, branches and sandboxes are named `slice/<N>-<slug>`; only
   plugins touch `git worktree` and Docker.
-- `.env` values are never printed; worktrees get copies of `.env*` for Robin
+- `.env` values are never printed; worktrees get copies of `.env*` for the user
   only, and tests never depend on them.
 - Models come from OpenCode Zen and OpenCode Go only; force-push and
   push-to-main are denied by policy.
 
 ## Two gateway modes, then contextual Addy skills
 
-**Plan and Build are the only gateways Robin needs.** The `oc-skills` prompt hook
+**Plan and Build are the only gateways the flow needs.** The `oc-skills` prompt hook
 reads `session.agent` and always attaches `using-agent-skills` plus
 `oc-plan-gateway` or `oc-build-gateway`, including sessions without a command.
 Commands are explicit/recovery entry points into the same gateways, not a second
@@ -114,8 +114,8 @@ agent working here, read this half first and follow it.
 
 ## Hard rules
 
-- Nothing is pushed or published, and no GitHub issues are opened, until Robin
-  explicitly approves. Robin merges; agents never merge, never force-push, and
+- Nothing is pushed or published, and no GitHub issues are opened, until the user
+  explicitly approves. The user merges; agents never merge, never force-push, and
   never push to `main`.
 - Nothing is copied from earlier config repos. The only vendored content is
   addy's skills under `skills/addy/`, unmodified at the commit pinned in

@@ -430,7 +430,7 @@ export default Plugin.define({
       if (watch.round > maxRounds) {
         console.log(`[oc-pr-monitor] slice #${watch.slice} BLOCKED after ${maxRounds} rounds`)
         gh(
-          `issue comment ${watch.slice} --body "BLOCKED: the PR did not converge within ${maxRounds} review rounds. Latest open threads: ${snapshot.threads.filter((t) => !t.resolved).length}. Robin takes a look."`,
+          `issue comment ${watch.slice} --body "BLOCKED: the PR did not converge within ${maxRounds} review rounds. Latest open threads: ${snapshot.threads.filter((t) => !t.resolved).length}. Needs human attention."`,
           watch.repoDir,
         )
         if (!await setSliceState(watch, "blocked") || !isCurrent(watch)) return

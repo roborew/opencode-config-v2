@@ -19,6 +19,7 @@ import {
   globMatch,
   isBootstrapReason,
   materializeMountpoints,
+  overlappingCheckServices,
   parseTestContract,
   planGateSteps,
   planMountpoints,
@@ -43,6 +44,7 @@ test:
     test: "docker compose -f compose.yml --profile test run --rm {service} {args}"
     full: "docker compose -f compose.yml --profile full up -d --wait"
   services: { all: "test", api: "api-test", web: "web-test", e2e: "e2e", smoke: "smoke" }
+  checks: { lint: "app-lint", typecheck: "app-typecheck" }
 test_globs: ["apps/*/tests/**", "apps/web/e2e/**", "apps/*/**/*.test.*"]
 `
 
@@ -99,13 +101,50 @@ describe("sandboxId", () => {
 describe("parseTestContract + argv building", () => {
   const contract = parseTestContract(FRONT_MATTER)
 
-  it("parses services, commands, globs and the generator", () => {
+  it("parses services, checks, commands, globs and the generator", () => {
     expect(contract.services).toEqual({ all: "test", api: "api-test", web: "web-test", e2e: "e2e", smoke: "smoke" })
+    expect(contract.checks).toEqual({ lint: "app-lint", typecheck: "app-typecheck" })
     expect(contract.generatorService).toBe("api-client-gen")
     expect(contract.generatedGlobs).toEqual(["packages/api-client/**"])
     expect(contract.testGlobs).toContain("apps/*/tests/**")
     expect(contract.profiles).toEqual(["test", "full"])
     expect(contract.fullCommand).toContain("--profile full")
+  })
+
+  it("parses the documented block form with unquoted or quoted service values", () => {
+    const contract = parseTestContract(`test:
+  services:
+    all: test
+    api: api-test
+  checks:
+    lint: app-lint
+    typecheck: "app-typecheck"
+`)
+    expect(contract.services).toEqual({ all: "test", api: "api-test" })
+    expect(contract.checks).toEqual({ lint: "app-lint", typecheck: "app-typecheck" })
+  })
+
+  it("detects a Compose service reused by test.services and test.checks", () => {
+    const contract = parseTestContract('  services: { all: "test" }\n  checks: { lint: "test" }\n')
+    expect(overlappingCheckServices(contract)).toEqual(["lint (test)"])
+  })
+
+  it("builds an isolated per-slice static-check argv with no published ports", () => {
+    const argv = buildTestArgv(contract, "s7-abc123", "app-lint", [])
+    expect(argv).toEqual([
+      "docker",
+      "compose",
+      "-p",
+      "s7-abc123",
+      "-f",
+      "compose.yml",
+      "--profile",
+      "test",
+      "run",
+      "--rm",
+      "app-lint",
+    ])
+    expect(argv.join(" ")).not.toContain("-p app")
   })
 
   it("builds an isolated per-slice test argv with no published ports", () => {
@@ -263,6 +302,17 @@ describe("bootstrap: contract assessment", () => {
     writeFileSync(join(dir, "AGENTS.md"), `---\n${FRONT_MATTER.trim()}\n---\n`)
     expect(assessContract(dir, readFrontMatter(dir))).toBe("ok")
   })
+
+  it("a service reused by test.services and test.checks -> overlapping-check-service", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      '---\n  services: { all: "test" }\n  checks: { lint: "test" }\n---\n',
+    )
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("overlapping-check-service")
+  })
 })
 
 describe("bootstrap: eligible reasons", () => {
@@ -271,6 +321,7 @@ describe("bootstrap: eligible reasons", () => {
     expect(isBootstrapReason("missing-front-matter")).toBe(true)
     const others: EnsureReason[] = [
       "declared-empty-contract",
+      "overlapping-check-service",
       "malformed-front-matter",
       "contract-removed-mid-slice",
       "backend-unavailable",
@@ -299,10 +350,12 @@ describe("bootstrap: evidence record", () => {
 })
 
 describe("bootstrap: gate planning", () => {
-  it("plans the gate's steps for a full contract", () => {
+  it("plans static checks before dynamic steps for a full contract", () => {
     const plan = planGateSteps(parseTestContract(FRONT_MATTER))
     expect(plan).toEqual({
       steps: [
+        "static check lint (app-lint)",
+        "static check typecheck (app-typecheck)",
         "test service test",
         "test service api-test",
         "test service web-test",
@@ -321,6 +374,18 @@ describe("bootstrap: gate planning", () => {
   it("refuses an e2e-only contract (no test services, no generator, no smoke)", () => {
     const plan = planGateSteps(parseTestContract('  services: { e2e: "e2e" }\n'))
     expect("refusal" in plan).toBe(true)
+  })
+
+  it("refuses a checks-only contract — static checks supplement, never replace, dynamic verification", () => {
+    const plan = planGateSteps(parseTestContract('  checks: { lint: "app-lint", typecheck: "app-typecheck" }\n'))
+    if (!("refusal" in plan)) throw new Error("expected a refusal for a checks-only contract")
+    expect(plan.refusal).toContain("static checks supplement")
+  })
+
+  it("refuses a contract that reuses a service in test.services and test.checks", () => {
+    const plan = planGateSteps(parseTestContract('  services: { all: "test" }\n  checks: { lint: "test" }\n'))
+    if (!("refusal" in plan)) throw new Error("expected a refusal for overlapping check/test services")
+    expect(plan.refusal).toContain("never both")
   })
 
   it("a declared smoke still plans the full-profile up and smoke steps", () => {
@@ -497,6 +562,49 @@ describe("bootstrap wiring through the plugin (no Docker)", () => {
     expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })
 
+  it("sandbox_test never accepts a static-check service, so lint can never become RED/GREEN evidence", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": `---\n${FRONT_MATTER.trim()}\n---\n` })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("test").execute({ slice: "11", service: "app-lint" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("not declared in the AGENTS.md test contract")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("sandbox_check on an unknown check is an actionable BLOCKED, recording nothing", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": `---\n${FRONT_MATTER.trim()}\n---\n` })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("check").execute({ slice: "11", check: "nope" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("not declared in the AGENTS.md test contract")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("sandbox_check with no declared checks is an actionable BLOCKED, recording nothing", async () => {
+    const wt = gitWorktree({ "compose.yml": "services: {}\n", "AGENTS.md": '---\n  services: { all: "test" }\n---\n' })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("check").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("declares no static checks")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("a contract reusing a service in test.services and test.checks stays BLOCKED and records nothing", async () => {
+    const wt = gitWorktree({
+      "compose.yml": "services: {}\n",
+      "AGENTS.md": '---\n  services: { all: "test" }\n  checks: { lint: "test" }\n---\n',
+    })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("never both")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
   it("a declared-but-empty contract stays BLOCKED even when compose.yml is missing too", async () => {
     const wt = gitWorktree({ "AGENTS.md": "---\n  services: {}\n---\n" })
     const { tools, values } = await setupSandbox(wt)
@@ -525,7 +633,7 @@ describe("bootstrap wiring through the plugin (no Docker)", () => {
     values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
     const res = await tools.get("test").execute({ slice: "11", service: "test" }, { sessionID: "s1" })
     expect(res.content.startsWith("BLOCKED")).toBe(true)
-    expect(res.content).toContain("declares nothing usable")
+    expect(res.content).toContain("declares no dynamic verification steps")
     expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })
 

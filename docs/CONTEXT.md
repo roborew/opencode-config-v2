@@ -10,12 +10,12 @@
 - **Test contract:** the repo's single `compose.yml` (test-only, never used in production). It runs the whole system and its tests from the repo's own Dockerfiles, fully isolated.
 - **Sandbox:** the per-slice isolated Docker environment where the test contract runs. The backend is **sysbox** (its own Sysbox container on the server) or **docker** (its own Compose project on the Mac).
 - **Sidecar:** the opencode-server container that alone holds the Docker socket and exposes the fixed sandbox API.
-- **Gate (local):** `sandbox_gate`: every test service in the contract, any declared generation drift check and production-image smoke, run isolated. **Final gate:** the same contract in GitHub Actions, aggregated as `ci-ok`.
+- **Gate (local):** `sandbox_gate`: every declared static check (lint/typecheck), every test service in the contract, any declared generation drift check and production-image smoke, run isolated. **Final gate:** the same contract in GitHub Actions, aggregated as `ci-ok`.
 - **Vertical slice order:** every applicable layer in one PR — for example migration → API → generated client → web → E2E. Skip layers and artifacts the repo or slice does not have.
-- **Evidence:** a recorded sandbox run `{sha, cmd, passed}` used by `redgreen_check`.
+- **Evidence:** a recorded `sandbox_test` run `{sha, cmd, passed}` used by `redgreen_check`; `sandbox_check` runs never create evidence.
 - **RED / GREEN:** a test-only commit whose evidence fails, followed by a code commit whose evidence passes.
 - **Flag:** a temporary toggle that keeps incomplete behaviour dark on `main`. Each one has a `flag-removal` slice.
-- **Gate:** a check a slice must pass. Local gates: `sandbox_gate` passes, `redgreen_check` is OK, and the persona review is done. Remote gates: all PR review threads are resolved, regardless of which tool created them, and Actions is green. Human gate: Robin merges.
+- **Gate:** a check a slice must pass. Local gates: `sandbox_gate` passes, `redgreen_check` is OK, and the persona review is done. Remote gates: all PR review threads are resolved, regardless of which tool created them, and Actions is green. Human gate: the user merges.
 - **PR monitor:** the zero-token wait loop after a PR opens. It wakes the slice session when something changes, notifies the central session on READY/BLOCKED/MERGED, and stays armed after READY until the PR merges or closes.
 - **Round:** one wake → fix → push cycle of the PR monitor. At most 5.
 - **BLOCKED:** a slice that stopped and needs a human or a spec change. The reason is posted on its issue.

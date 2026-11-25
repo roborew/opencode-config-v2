@@ -9,7 +9,7 @@ All issue and PR bodies come from this config's templates in
 `skills/oc/oc-github/templates/` (D33) — never from the app repo. App repos hold
 no flow reference material.
 
-## Creating the PRD issue (after Robin approves the spec)
+## Creating the PRD issue (after spec approval)
 
 1. Fill `templates/prd.md` (Problem, Solution, User stories, Spec link, Slices
    — left as "auto-filled" for now, Out of scope) from the approved spec.
@@ -17,7 +17,7 @@ no flow reference material.
    then apply the `prd` label (`gh issue edit <n> --add-label prd`). Create any
    missing label first with `gh label create <name> --force` — idempotent.
 
-## Creating slice issues (after Robin approves the breakdown)
+## Creating slice issues (after breakdown approval)
 
 1. Fill `templates/slice.md` per slice: Parent PRD, What to build, Acceptance
    criteria, Apps touched, Contract change, Flag plan, Blocked by.

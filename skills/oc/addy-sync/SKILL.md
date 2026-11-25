@@ -1,6 +1,6 @@
 ---
 name: addy-sync
-description: Updates the vendored addy skills under skills/addy/ from upstream after Robin approves the diff. Use only when Robin asks for an addy update; nothing else may change skills/addy/.
+description: Updates the vendored addy skills under skills/addy/ from upstream after the user approves the diff. Use only when the user asks for an addy update; nothing else may change skills/addy/.
 ---
 
 # addy-sync — vendoring updates for addy's skills
@@ -12,7 +12,7 @@ description: Updates the vendored addy skills under skills/addy/ from upstream a
 ## Procedure
 
 1. Fetch upstream at the target ref (default: `main`) into a throwaway clone.
-2. Show Robin the diff of `skills/addy/` (all 25 skills plus `references/`)
+2. Show the user the diff of `skills/addy/` (all 25 skills plus `references/`)
    against the pinned commit from `UPSTREAM.md` — new, changed and removed
    files.
 3. **Wait for an explicit approval.** Change nothing without it.

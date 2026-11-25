@@ -6,7 +6,7 @@ description: Scaffolds or upgrades a single-app or multi-app repo using the Proj
 # repo-setup — bring an app repo into the flow
 
 Point this at an app repo (new, or an existing project of any stack). It
-proposes changes and applies them **only after Robin approves each one**. Start
+proposes changes and applies them **only after each one is approved**. Start
 from the repository's real components and preserve its idiomatic structure. The
 Project Template guides boundaries and conventions; it never requires a
 monorepo, `apps/`, `packages/`, or an API client (D28, D29).

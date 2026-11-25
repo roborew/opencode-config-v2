@@ -8,7 +8,7 @@ The initial configuration made `/spec` and `/plan` the deterministic entry point
 
 There were also two concrete coverage defects: Build could not invoke `using-agent-skills`, and neither primary could invoke `shipping-and-launch`. Other contextual skills were available but lacked a coherent discovery rule. The existing prompt hook logged routing errors and admitted the prompt, silently removing the supposed guarantee.
 
-Robin expects two simple gateways, with every applicable Addy workflow considered at session start and as context changes. Vendoring all 25 skills is insufficient; they need explicit, reachable activation contracts without running every workflow on every task.
+The flow needs two simple gateways, with every applicable Addy workflow considered at session start and as context changes. Vendoring all 25 skills is insufficient; they need explicit, reachable activation contracts without running every workflow on every task.
 
 ## Decision
 
@@ -23,7 +23,7 @@ The Plan gateway starts Define whenever a significant initiative lacks an approv
 
 The Build gateway distinguishes central coordination from implementation in a slice worktree. Slice overlays compose the gateway with incremental implementation, context engineering, TDD, git workflow, sandbox tooling, and area/risk skills. Only the slim gateway and meta-skill are unconditional. Full core workflows (Plan interview/spec/planning/GitHub; Build worktree/GitHub; review/simplification/PR-monitor) load at their lifecycle phase through the gateway's permitted skill tool or the corresponding command, avoiding large unconditional contexts in command-free sessions. All other Addy capabilities have explicit contextual triggers in the gateways and global `AGENTS.md`. `using-agent-skills` is now permitted in Build; `constraint-driven-development` and `shipping-and-launch` are permitted as quality/release-readiness workflows.
 
-PR delivery remains distinct from production launch. `shipping-and-launch` does not imply automatic deployment, and Robin still merges. Conditional skill availability grants no extra shell or deployment permission.
+PR delivery remains distinct from production launch. `shipping-and-launch` does not imply automatic deployment, and the user still merges. Conditional skill availability grants no extra shell or deployment permission.
 
 Commands remain explicit/recovery interfaces into the same gateways rather than a competing routing implementation. The gateway files are canonical; commands and system prompts defer to them.
 
@@ -38,6 +38,6 @@ A static regression suite checks that all 25 vendored skills have an agent owner
 
 ## Consequences
 
-Plan and Build no longer depend on Robin naming the correct phase command, TDD, frontend, or other individual skills. Core workflow loading and plugin error behavior become testable mechanical concerns. Following a loaded skill still requires model compliance; this configuration does not claim that every model decision can be made deterministic.
+Plan and Build no longer depend on the user naming the correct phase command, TDD, frontend, or other individual skills. Core workflow loading and plugin error behavior become testable mechanical concerns. Following a loaded skill still requires model compliance; this configuration does not claim that every model decision can be made deterministic.
 
 Plan's read-only restriction is now explicitly limited to research/drafting before approval. It cannot be used to justify handing spec and issue output to Build. Older incomplete sessions need a fresh prompt for gateway attachment; commands are no longer required to provide the missing workflows.

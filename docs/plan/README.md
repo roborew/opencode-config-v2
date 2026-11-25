@@ -22,3 +22,12 @@ Build order (frontier):
 Each project uses one app repo; the Project Template (`../../templates/project/TEMPLATE.md`) guides both single-app and multi-app layouts without prescribing a monorepo, nested `apps/`, an API boundary or a particular stack. Tests always run fully isolated in Docker (blueprint §7.2, §9.2). Each repo has one test-only `compose.yml` (D29). Agents call Compose directly, and the `justfile` is an optional shortcut (D31). Browser E2E runs in Docker when the repo has browser flows (D32).
 Tickets 09 and 10 are carried out in the opencode-server repo, against blueprint §10–§11.
 Ticket 01 settled every former [spike] item on 2026-11-14 (`../adr/0009-spike-results.md`); the blueprint records the confirmed approaches.
+
+## Supplementary initiative specs
+
+- `capability-map-local-quality-feedback.md`
+- `spec-sandbox-static-checks.md`
+- `spec-plan-project-health.md`
+
+These are later, approved additions to the original plan pack; they are not part
+of the numbered ticket build order above.

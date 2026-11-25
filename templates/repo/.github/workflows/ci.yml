@@ -15,6 +15,27 @@ permissions:
   contents: read
 
 jobs:
+  static-checks:
+    name: Static checks (isolated Compose)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # TODO(repo): one step per static check from AGENTS.md test.checks,
+      # using the repo's real lint/typecheck services and the same command
+      # oc-sandbox runs. The single-app example below is illustrative: replace
+      # it with the repo's real services, and omit checks the stack does not
+      # have.
+      - name: app-lint
+        run: docker compose -f compose.yml --profile test run --rm app-lint
+      - name: app-typecheck
+        run: docker compose -f compose.yml --profile test run --rm app-typecheck
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.yml --profile test down -v --remove-orphans
+
   test:
     name: Test suites (isolated Compose)
     runs-on: ubuntu-latest
@@ -78,7 +99,7 @@ jobs:
   ci-ok:
     name: ci-ok
     runs-on: ubuntu-latest
-    needs: [test, e2e, smoke]
+    needs: [static-checks, test, e2e, smoke]
     # TODO(repo): add every new job to this needs list.
     if: ${{ !cancelled() }}
     steps:
@@ -86,4 +107,4 @@ jobs:
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
         run: exit 1
       - name: All required jobs passed
-        run: echo "test, e2e and smoke all passed."
+        run: echo "static checks, test, e2e and smoke all passed."

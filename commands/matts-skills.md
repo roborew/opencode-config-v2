@@ -1,6 +1,7 @@
 ---
 description: Browse and explicitly select a Matt Pocock skill
 agent: matt
+subagent: false
 ---
 
 @ask-matt

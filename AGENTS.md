@@ -8,10 +8,12 @@ config repo itself.
 ## The delivery flow
 
 Two lifecycle primary modes override OpenCode's built-in agents: **plan** (Define + Plan)
-and **build** (Build → Verify → Review → Ship). Two additional utility agents stay
-outside that lifecycle: **matt** runs explicitly selected Matt Pocock workflows and
-**skill-admin** performs approval-gated upstream skill synchronization. Neither
-utility agent is a delivery-flow gateway. The lifecycle follows addy's
+and **build** (Build → Verify → Review → Ship). They are the only selectable primary
+agents. Two additional utility subagents stay outside that lifecycle: **matt** runs
+explicitly selected Matt Pocock workflows and **skill-admin** performs approval-gated
+upstream skill synchronization. Neither utility agent is a delivery-flow gateway, and
+neither appears in the primary-agent picker: `/matts-skills` and `/sync-skills` select
+them in the current session. The lifecycle follows addy's
 agent-skills: Define → Plan → Build → Verify → Review → Ship, trunk-based — one
 vertical slice = one issue = one worktree off `origin/main` = one PR to `main`.
 The user approves specs and slice breakdowns and merges; agents never merge.

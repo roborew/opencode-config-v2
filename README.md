@@ -110,7 +110,9 @@ The detailed daily loop and BLOCKED handling are in
 
 Matt Pocock's promoted production skills are vendored under `skills/matt/` for
 deliberate, manual use. They are not part of the delivery lifecycle: Plan and
-Build cannot load them, and `oc-skills` never attaches them.
+Build cannot load them, and `oc-skills` never attaches them. The `matt` utility
+is a subagent, not a primary mode, so the primary-agent picker stays limited to
+Plan and Build.
 
 Use the single menu command:
 
@@ -128,7 +130,9 @@ You can also select directly without adding more slash commands:
 
 Inside the `matt` utility agent, an upstream instruction to run `/foo` maps to
 `@foo`; otherwise return to `/matts-skills`. Matt's helper skills stay behind the
-selected workflow.
+selected workflow. Running `/matts-skills` switches the current session to the
+`matt` subagent for the selected workflow; switch back to Plan or Build when the
+workflow finishes.
 
 `teach` uses the directory where it runs as a persistent workspace, so run it in
 a dedicated learning directory unless you want its `MISSION.md`, lessons and
@@ -142,7 +146,9 @@ Open a session in your `opencode-config-v2` checkout and ask for `/sync-skills`;
 it refuses to run in an app repo. It resolves the latest stable (non-draft,
 non-prerelease) GitHub release for both upstreams to full commit SHAs, shows one
 combined diff and lifecycle-impact report, and applies only after you approve.
-`main` is never the default or a fallback. You can pin a reproducible update:
+`main` is never the default or a fallback. `/sync-skills` runs the `skill-admin`
+subagent in the current session, so it is not a primary mode either. You can pin
+a reproducible update:
 
 ```text
 /sync-skills addy=0.6.18 matt=v1.3.2

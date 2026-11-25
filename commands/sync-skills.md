@@ -1,6 +1,7 @@
 ---
 description: Preview and approve stable-release updates for vendored Addy and Matt skills
 agent: skill-admin
+subagent: false
 ---
 
 @skills-sync

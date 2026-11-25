@@ -219,12 +219,14 @@ V4.1 Flash $200.
 
 ### 4.4 `matt` (manual utility agent)
 
+- **Mode:** `subagent`. It never appears in the primary-agent picker; `/matts-skills` selects it with `subagent: false`, so the command runs in the current session with this agent's model and permissions. Plan and Build remain the only primary modes.
 - **Job:** run Matt Pocock workflows only after explicit selection through `/matts-skills`. Never routes the delivery lifecycle and never receives `using-agent-skills`, an OC gateway or an Addy lifecycle skill.
 - **Permissions:** edit `*` allow; shell `*` ask with routine read-only Git allowed and raw `docker`/`sandbox`/`git worktree` plus force-push/push-to-main denied; skill `*` deny then exactly the promoted Matt production IDs; subagents `explore` and `general` only.
 - **System prompt:** explicit menu selection gates every user-invoked workflow; translate upstream `/foo` labels to `@foo`; never chain into another user-invoked workflow; obey repository test/merge/secrets rules.
 
 ### 4.5 `skill-admin` (manual maintenance agent)
 
+- **Mode:** `subagent`. It never appears in the primary-agent picker; `/sync-skills` selects it with `subagent: false`, so the command runs in the current session with this agent's model and permissions.
 - **Job:** run `/sync-skills` only in a clean config checkout.
 - **Permissions:** edit `*` allow; shell `*` ask with release resolution and routine Git inspection allowed, but Docker, push, PR/issue operations denied; skill allow only `skills-sync`, `addy-sync` and `matt-sync`; no subagents.
 - **System prompt:** stage both stable releases, show one diff and lifecycle-impact report, require explicit approval, never silently activate Addy skills or add Matt routing, verify before reporting success.

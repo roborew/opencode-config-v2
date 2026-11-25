@@ -28,6 +28,7 @@ Ticket 01 settled every former [spike] item on 2026-11-14 (`../adr/0009-spike-re
 - `capability-map-local-quality-feedback.md`
 - `spec-sandbox-static-checks.md`
 - `spec-plan-project-health.md`
+- `spec-matt-pocock-skills.md` (approved 2026-11-25)
 - `capability-map-lifecycle-assurance.md` (draft, awaiting approval)
 - `spec-lifecycle-contract.md` (draft, awaiting approval)
 - `spec-skill-enforcement.md` (draft, awaiting approval)

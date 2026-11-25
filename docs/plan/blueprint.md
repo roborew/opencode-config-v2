@@ -29,14 +29,23 @@ opencode-config-v2/
 ├── AGENTS.md                      # global instructions: lifecycle + phase→skill table (§6)
 ├── agents/
 │   ├── code-reviewer.md           # addy persona, frontmatter adapted to OpenCode (markdown agents confirmed, ADR 0009)
-│   └── security-auditor.md        # addy persona, frontmatter adapted to OpenCode (markdown agents confirmed, ADR 0009)
+│   ├── security-auditor.md        # addy persona, frontmatter adapted to OpenCode (markdown agents confirmed, ADR 0009)
+│   ├── matt.md                    # manual Matt workflows; no lifecycle access
+│   └── skill-admin.md             # approval-gated skill synchronization only
 ├── commands/
 │   ├── spec.md  plan.md  build.md  review.md  ship.md
+│   └── matts-skills.md  sync-skills.md
 ├── skills/
 │   ├── addy/                      # vendored unmodified at the pinned commit
 │   │   ├── UPSTREAM.md            # repo URL, commit SHA, date, licence
 │   │   ├── LICENSE                # addy's MIT licence, verbatim
 │   │   └── <skill>/SKILL.md ...   # all 25 skills (§5)
+│   ├── matt/                      # complete promoted set at a pinned stable release
+│   │   ├── UPSTREAM.md            # release, tag object, commit SHA, date, licence
+│   │   ├── LICENSE                # upstream MIT licence, verbatim
+│   │   ├── .claude-plugin/plugin.json  # release production allowlist, verbatim
+│   │   ├── engineering/<skill>/   # complete promoted engineering skill folders
+│   │   └── productivity/<skill>/  # complete promoted productivity skill folders
 │   └── oc/
 │       ├── oc-plan-gateway/SKILL.md
 │       ├── oc-build-gateway/SKILL.md
@@ -49,6 +58,8 @@ opencode-config-v2/
 │       ├── oc-sandbox/SKILL.md
 │       ├── oc-pr-monitor/SKILL.md
 │       ├── addy-sync/SKILL.md
+│       ├── matt-sync/SKILL.md
+│       ├── skills-sync/SKILL.md
 │       └── repo-setup/SKILL.md
 ├── plugins/
 │   ├── oc-skills/                 # prompt hook: guaranteed skill loading (§6)
@@ -95,7 +106,8 @@ The shape below follows the 2.0 [config docs](https://opencode.ai/docs/config/).
   ],
 
   // No `skills` array: the vendored skills are found by auto-discovery of the global
-  // config `skills/` directory (skills/addy/<skill>/SKILL.md and skills/oc/<skill>/SKILL.md).
+  // config `skills/` directory (skills/addy, skills/matt/engineering,
+  // skills/matt/productivity and skills/oc).
   // Relative `skills` entries resolve from the *working directory*, not the config file,
   // and globs are not supported — both confirmed by ADR 0009. `package` paths for plugins
   // resolve against the config file's directory, so "./plugins/x" is <repo>/plugins/x.
@@ -143,6 +155,7 @@ Markdown agents in `agents/` accept the same fields as `agents` entries (confirm
 | Agent                     | Model ID                                                            | Price per 1M (in/out)                                                             |
 | ------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | plan                      | `opencode-go/kimi-k3.1-pro`                                         | $2 / $10 ($0.20 cached read, $2 cached write)                                     |
+| matt, skill-admin         | `opencode-go/kimi-k3.1-pro`                                         | $2 / $10 ($0.20 cached read, $2 cached write)                                     |
 | explore, general          | `opencode-go/glm-5.3-flash`                                         | $0.15 / $0.50 ($0.03 cached read)                                                 |
 | build                     | `opencode-go/deepseek-v4.1-flash`                                   | $0.15/$0.60 off-peak; $0.30/$1.20 peak (01:00–04:00 and 06:00–10:00 UTC, Mon–Fri) |
 | code-reviewer             | `opencode-go/minimax-m3.1-flash` (alt `opencode-go/kimi-k2.7-code`) | $0.15/$0.60 (alt $0.95/$4)                                                        |
@@ -204,11 +217,31 @@ V4.1 Flash $200.
 - Add one paragraph to the code-reviewer body, as a clearly marked local extension: "Check that the slice's tests were not weakened, deleted or skipped to make them pass, and that each behaviour change has a preceding test-only commit."
 - `test-engineer` and `web-performance-auditor` aren't installed.
 
+### 4.4 `matt` (manual utility agent)
+
+- **Job:** run Matt Pocock workflows only after explicit selection through `/matts-skills`. Never routes the delivery lifecycle and never receives `using-agent-skills`, an OC gateway or an Addy lifecycle skill.
+- **Permissions:** edit `*` allow; shell `*` ask with routine read-only Git allowed and raw `docker`/`sandbox`/`git worktree` plus force-push/push-to-main denied; skill `*` deny then exactly the promoted Matt production IDs; subagents `explore` and `general` only.
+- **System prompt:** explicit menu selection gates every user-invoked workflow; translate upstream `/foo` labels to `@foo`; never chain into another user-invoked workflow; obey repository test/merge/secrets rules.
+
+### 4.5 `skill-admin` (manual maintenance agent)
+
+- **Job:** run `/sync-skills` only in a clean config checkout.
+- **Permissions:** edit `*` allow; shell `*` ask with release resolution and routine Git inspection allowed, but Docker, push, PR/issue operations denied; skill allow only `skills-sync`, `addy-sync` and `matt-sync`; no subagents.
+- **System prompt:** stage both stable releases, show one diff and lifecycle-impact report, require explicit approval, never silently activate Addy skills or add Matt routing, verify before reporting success.
+
 ## 5. Vendored addy skills (all 25, unmodified)
 
 api-and-interface-design · browser-testing-with-devtools · ci-cd-and-automation · code-review-and-quality · code-simplification · constraint-driven-development · context-engineering · debugging-and-error-recovery · deprecation-and-migration · documentation-and-adrs · doubt-driven-development · frontend-ui-engineering · git-workflow-and-versioning · idea-refine · incremental-implementation · interview-me · observability-and-instrumentation · performance-optimization · planning-and-task-breakdown · security-and-hardening · shipping-and-launch · source-driven-development · spec-driven-development · test-driven-development · using-agent-skills
 
 Also vendor addy's `references/` folder, because some skills point into it. `UPSTREAM.md` records the URL, SHA, date and licence. `addy-sync` (§8) is the only thing allowed to change `skills/addy/`.
+
+## 5.1 Vendored Matt skills (complete promoted production set, unmodified)
+
+The source of truth is the stable release's `.claude-plugin/plugin.json`, not every skill published through skills.sh. Vendor every complete promoted `engineering/` and `productivity/` folder at the release pinned in `skills/matt/UPSTREAM.md`, including companions, scripts, executable modes and `agents/openai.yaml`. Preserve the upstream grouping. Also vendor the release manifest and MIT licence verbatim.
+
+At `v1.3.2` the set is 27 skills: 20 engineering and 7 productivity. Exclude `skills/in-progress/` (beta), `skills/misc/` (frozen/unmaintained), `skills/deprecated/`, `.out-of-scope/`, upstream READMEs outside skill folders, docs, CI and development tooling. `matt-sync` (§8) is the only thing allowed to change `skills/matt/`; CI requires a `Matt-Sync: <sha>` trailer.
+
+Matt integration is isolated from the delivery flow: Plan and Build permissions contain no Matt ID, `plugins/oc-skills` never attaches one, and no gateway, lifecycle command or slice overlay names one. `/matts-skills` is the only Matt workflow command; it presents the production workflows and dispatches only the user's explicit choice.
 
 ## 6. Guaranteed skill loading
 
@@ -320,7 +353,9 @@ Each is a short `SKILL.md` with `name` and `description` frontmatter. It describ
 - **oc-worktree:** when and how to call `slice_*`, and what each state means.
 - **oc-sandbox:** the red/green loop through `sandbox_test`, the static-check loop through `sandbox_check`, focused runs vs full runs, and reading `redgreen_check`.
 - **oc-pr-monitor:** handling a wake-up, the fix/reply rules and the round cap.
-- **addy-sync:** fetch addy at a target ref (default `main`), show the diff of `skills/addy/` and `references/` against `UPSTREAM.md`, apply only after approval, update `UPSTREAM.md`, and flag any skill that was renamed or removed and is still referenced in §6 or in the permissions.
+- **skills-sync:** resolve both latest stable releases to full SHAs, stage and validate both, report the combined diff and lifecycle impact, require one explicit approval, then apply only approved upstream and compatibility changes and verify.
+- **addy-sync:** resolve a stable Addy release (default latest, never a silent `main` fallback), show the diff, apply only after approval, update `UPSTREAM.md`, and flag a skill that was renamed or removed and is still referenced in the lifecycle policy or permissions. The commit carries `Addy-Sync: <sha>`.
+- **matt-sync:** read the release production manifest, copy each complete promoted skill folder, exclude beta/frozen/deprecated content, propose mirroring permission changes in `agents/matt.md`, show the diff, apply only after approval, update `UPSTREAM.md`, and require `Matt-Sync: <sha>`.
 - **repo-setup:** propose §9 setup for an app repo using its actual single-app or multi-app shape. Show every file and setting before applying it, and apply only after approval. Branch protection and labels go through `gh api`.
 
 ## 9. App repo contract
@@ -443,7 +478,7 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 
 1. Validate `opencode.jsonc` against `https://opencode.ai/config.json`.
 2. Check that every skill named in §6, in the permissions and in the command templates exists on disk.
-3. Check that `skills/addy/` matches `UPSTREAM.md`: it was changed only by an `addy-sync` commit, with a `Addy-Sync: <sha>` trailer.
+3. Check that `skills/addy/` matches `UPSTREAM.md`: it was changed only by an `addy-sync` commit, with a `Addy-Sync: <sha>` trailer. Check that `skills/matt/` matches its production manifest and was changed only by a `matt-sync` commit, with a `Matt-Sync: <sha>` trailer.
 4. Run `npm run typecheck` with the strict compiler, unused-local and unused-parameter checks in `tsconfig.json`.
 5. Run the plugin tests (`tests/plugins`).
 6. Run gitleaks and zizmor, with pinned action SHAs.

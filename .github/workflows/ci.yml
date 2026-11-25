@@ -77,14 +77,18 @@ jobs:
           if (!validate(config)) fail(`opencode.jsonc schema violations: ${ajv.errorsText(validate.errors)}`)
           else ok("opencode.jsonc valid against https://opencode.ai/config.json")
 
-          // skill IDs available on disk
+          // skill IDs available on disk, including grouped trees such as skills/matt/engineering
           const ids = new Set()
-          for (const root of ["skills/addy", "skills/oc"]) {
-            if (!existsSync(root)) continue
+          const collectSkills = (root) => {
+            if (!existsSync(root)) return
             for (const e of readdirSync(root, { withFileTypes: true })) {
-              if (e.isDirectory() && existsSync(`${root}/${e.name}/SKILL.md`)) ids.add(e.name)
+              if (!e.isDirectory()) continue
+              const path = `${root}/${e.name}`
+              if (existsSync(`${path}/SKILL.md`)) ids.add(e.name)
+              else collectSkills(path)
             }
           }
+          for (const root of ["skills/addy", "skills/matt", "skills/oc"]) collectSkills(root)
 
           // 2. every referenced skill exists
           for (const [agent, def] of Object.entries(config.agents ?? {})) {
@@ -169,6 +173,21 @@ jobs:
           done
           if [ "$bad" -ne 0 ]; then exit 1; fi
           echo "ok: every skills/addy/ commit carries an Addy-Sync trailer"
+      # Matt skills follow the same pinned, unmodified vendoring contract.
+      - name: Matt vendoring — Matt-Sync trailer required on skills/matt/ commits
+        run: |
+          set -euo pipefail
+          bad=0
+          for c in $(git log --no-merges --format=%H); do
+            if git show --name-only --format= "$c" -- skills/matt | grep -q .; then
+              if ! git log -1 --format=%B "$c" | grep -q "^Matt-Sync: "; then
+                echo "commit $c changes skills/matt/ without a Matt-Sync: <sha> trailer"
+                bad=1
+              fi
+            fi
+          done
+          if [ "$bad" -ne 0 ]; then exit 1; fi
+          echo "ok: every skills/matt/ commit carries a Matt-Sync trailer"
 
   typecheck:
     name: Type checking

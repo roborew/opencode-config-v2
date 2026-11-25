@@ -106,13 +106,52 @@ flowchart TD
 The detailed daily loop and BLOCKED handling are in
 [`docs/runbook.md`](docs/runbook.md).
 
-## Update addy's skills
+## Manual Matt skills
 
-Ask for the `addy-sync` skill: it fetches upstream at a target ref, shows the diff
-of `skills/addy/` and `references/` against the pinned commit in
-`skills/addy/UPSTREAM.md`, applies it only after you approve, and updates
-`UPSTREAM.md`. The update commit carries an `Addy-Sync: <sha>` trailer — CI rejects
-`skills/addy/` changes without it.
+Matt Pocock's promoted production skills are vendored under `skills/matt/` for
+deliberate, manual use. They are not part of the delivery lifecycle: Plan and
+Build cannot load them, and `oc-skills` never attaches them.
+
+Use the single menu command:
+
+```text
+/matts-skills
+```
+
+It lists the available Matt workflows and starts one only after you choose it.
+You can also select directly without adding more slash commands:
+
+```text
+/matts-skills improve-codebase-architecture
+/matts-skills teach
+```
+
+Inside the `matt` utility agent, an upstream instruction to run `/foo` maps to
+`@foo`; otherwise return to `/matts-skills`. Matt's helper skills stay behind the
+selected workflow.
+
+`teach` uses the directory where it runs as a persistent workspace, so run it in
+a dedicated learning directory unless you want its `MISSION.md`, lessons and
+reference files in the current repository. `improve-codebase-architecture`
+writes its HTML report to the OS temp directory and uses Tailwind/Mermaid CDNs
+for full rendering.
+
+## Update addy's and Matt's skills
+
+Open a session in your `opencode-config-v2` checkout and ask for `/sync-skills`;
+it refuses to run in an app repo. It resolves the latest stable (non-draft,
+non-prerelease) GitHub release for both upstreams to full commit SHAs, shows one
+combined diff and lifecycle-impact report, and applies only after you approve.
+`main` is never the default or a fallback. You can pin a reproducible update:
+
+```text
+/sync-skills addy=0.6.18 matt=v1.3.2
+```
+
+The sync never silently activates a new Addy skill or adds a Matt skill to the
+lifecycle. `skills/addy/` and `skills/matt/` remain unmodified upstream content;
+commits changing them require `Addy-Sync: <sha>` and/or `Matt-Sync: <sha>`
+trailers, which CI enforces.
 
 Daily use, BLOCKED handling, cleanup and upgrading OpenCode are in
 [`docs/runbook.md`](docs/runbook.md).
@@ -121,11 +160,13 @@ Daily use, BLOCKED handling, cleanup and upgrading OpenCode are in
 
 The flow is implemented (tickets 00–08, 11): config skeleton, vendored addy
 skills, the four plugins (`oc-skills`, `oc-sandbox`, `oc-worktree`,
-`oc-pr-monitor`), the five commands, and CI config verification plus plugin
-tests. Remaining: the opencode-server work (tickets 09–10, in that repo) and the
-recorded end-to-end runs (ticket 12). Work is tracked locally in
-`.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until the GitHub tracker
-is switched on.
+`oc-pr-monitor`), the five lifecycle commands, and CI config verification plus
+plugin tests. Matt Pocock's promoted production skills are vendored for manual
+use through `/matts-skills`, with `/sync-skills` for stable-release updates; they
+remain outside the Addy lifecycle. Remaining: the opencode-server work (tickets
+09–10, in that repo) and the recorded end-to-end runs (ticket 12). Work is
+tracked locally in `.scratch/opencode-v2/issues/` (tickets 00–12, no 03) until
+the GitHub tracker is switched on.
 
 ## Development
 

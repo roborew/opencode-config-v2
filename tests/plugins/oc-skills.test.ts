@@ -11,6 +11,7 @@ import {
   skillsForSession,
   skillsForSlice,
   BASE_SKILLS,
+  MANUAL_AGENTS,
   PRIMARY_SKILLS,
 } from "../../plugins/oc-skills/skills"
 
@@ -66,6 +67,14 @@ describe("primary gateway skills", () => {
 
   it("does not infer a gateway for unrelated agents", () => {
     expect(skillsForSession("explore")).toEqual([])
+  })
+
+  it("never attaches lifecycle or slice skills to the manual utility agents", () => {
+    for (const agent of MANUAL_AGENTS) {
+      expect(
+        skillsForSession(agent, { issue: 7, labels: ["area:web", "risk:security"] }, FRONT_MATTER, "/tmp"),
+      ).toEqual([])
+    }
   })
 })
 

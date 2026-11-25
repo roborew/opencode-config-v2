@@ -7,8 +7,11 @@ config repo itself.
 
 ## The delivery flow
 
-Two primary modes override OpenCode's built-in agents: **plan** (Define + Plan)
-and **build** (Build → Verify → Review → Ship). The lifecycle follows addy's
+Two lifecycle primary modes override OpenCode's built-in agents: **plan** (Define + Plan)
+and **build** (Build → Verify → Review → Ship). Two additional utility agents stay
+outside that lifecycle: **matt** runs explicitly selected Matt Pocock workflows and
+**skill-admin** performs approval-gated upstream skill synchronization. Neither
+utility agent is a delivery-flow gateway. The lifecycle follows addy's
 agent-skills: Define → Plan → Build → Verify → Review → Ship, trunk-based — one
 vertical slice = one issue = one worktree off `origin/main` = one PR to `main`.
 The user approves specs and slice breakdowns and merges; agents never merge.
@@ -97,10 +100,16 @@ agent working here, read this half first and follow it.
 - Nothing is pushed or published, and no GitHub issues are opened, until the user
   explicitly approves. The user merges; agents never merge, never force-push, and
   never push to `main`.
-- Nothing is copied from earlier config repos. The only vendored content is
-  addy's skills under `skills/addy/`, unmodified at the commit pinned in
-  `skills/addy/UPSTREAM.md` and changed only by `addy-sync` (commits touching
-  it need an `Addy-Sync: <sha>` trailer).
+- Nothing is copied from earlier config repos. The vendored content is addy's
+  skills under `skills/addy/` and Matt Pocock's promoted production skills under
+  `skills/matt/`, both unmodified at the release/commit pinned in their
+  `UPSTREAM.md`. `addy-sync` and `matt-sync` are the only writers; every commit
+  touching either tree carries the matching `Addy-Sync: <sha>` or
+  `Matt-Sync: <sha>` trailer.
+- Matt skills are manual-only. Use `/matts-skills` to browse or select one; no
+  Matt skill may appear in the Addy lifecycle policy, Plan/Build permissions,
+  `oc-skills` routing, a gateway or a lifecycle command. `/sync-skills` is the
+  combined stable-release update path for both upstreams.
 - Agents never run raw `docker`, `git worktree` or `sandbox` commands in app
   repos; every test run goes through `oc-sandbox`, fully isolated in Docker.
 - Real secrets never enter this repo. CI (gitleaks) scans every commit.
@@ -116,4 +125,6 @@ agent working here, read this half first and follow it.
 ## Status
 
 Under construction — see the current ticket for what exists and what is still
-to come. The final layout is `docs/plan/blueprint.md` §2.
+to come. The final layout is `docs/plan/blueprint.md` §2. Matt Pocock's promoted
+production skills are vendored for manual use through `/matts-skills`; they are
+deliberately outside the Addy lifecycle.

@@ -1,6 +1,6 @@
 # Glossary
 
-- **Mode:** one of the two primary agents. **plan** handles Define + Plan; **build** handles Build → Verify → Review → Ship.
+- **Mode:** one of the two delivery-lifecycle primary agents. **plan** handles Define + Plan; **build** handles Build → Verify → Review → Ship. The **matt** and **skill-admin** utility agents are manual-only and are not lifecycle modes or gateways.
 - **PRD (umbrella):** a GitHub issue (label `prd`) holding a product requirement and linking its spec in `docs/spec/`. It is never merged as one unit, and it closes when its last slice merges.
 - **Slice:** a thin vertical change, independently reviewable and mergeable to `main`. It's a sub-issue of a PRD (label `slice`) or stands alone for a targeted change. Don't call it a ticket, stage, task or sub-PR.
 - **Slice worktree:** a git worktree off `origin/main` for exactly one slice, on branch `slice/<N>-<slug>`, with its own OpenCode session.
@@ -21,3 +21,6 @@
 - **BLOCKED:** a slice that stopped and needs a human or a spec change. The reason is posted on its issue.
 - **Persona:** an addy reviewer subagent (`code-reviewer`, `security-auditor`). Personas never call other personas.
 - **Vendored addy:** `skills/addy/`, unmodified at the commit in `UPSTREAM.md`, and changed only by `addy-sync`.
+- **Vendored Matt:** `skills/matt/`, unmodified at the stable release and commit in `UPSTREAM.md`, containing only the skills promoted by the release's `.claude-plugin/plugin.json`. It is changed only by `matt-sync` and is never part of the Addy lifecycle.
+- **Production release:** the latest non-draft, non-prerelease GitHub release, resolved to a full commit SHA. It is the default sync channel for both upstreams; `main` is preview-only.
+- **Skill sync:** `/sync-skills` (`skills-sync` with `addy-sync` and `matt-sync`) previews both stable releases, reports lifecycle impact, and applies only approved changes.

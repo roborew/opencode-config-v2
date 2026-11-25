@@ -20,6 +20,13 @@ export const PRIMARY_SKILLS = {
   build: ["using-agent-skills", "oc-build-gateway"],
 } as const
 
+/**
+ * Utility agents outside the delivery lifecycle. They are admitted without any
+ * lifecycle gateway, slice overlay or app-skill attachment: /matts-skills and
+ * /sync-skills load their own explicitly selected skills.
+ */
+export const MANUAL_AGENTS = ["matt", "skill-admin"] as const
+
 export const BASE_SKILLS = [
   "incremental-implementation",
   "test-driven-development",
@@ -186,6 +193,9 @@ export function skillsForSession(
   frontMatter = "",
   directory = "",
 ): string[] {
+  // Manual utility agents are never attached lifecycle or slice skills, even
+  // when their session happens to live in a slice worktree.
+  if (agent && (MANUAL_AGENTS as readonly string[]).includes(agent)) return []
   const primary = agent === "plan" || agent === "build" ? PRIMARY_SKILLS[agent] : []
   const skills = new Set<string>(primary)
   if (record) {

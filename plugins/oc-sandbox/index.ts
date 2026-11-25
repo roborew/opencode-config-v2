@@ -26,11 +26,12 @@ import {
 } from "./lib"
 
 /**
- * oc-sandbox — namespace "sandbox": sandbox_up, sandbox_test, sandbox_gate,
- * redgreen_check, sandbox_down (blueprint §7.2). Every run is fully isolated
- * in Docker, built from the repo's own Dockerfiles and its single compose.yml,
- * with a per-slice project name and no published ports. Evidence is recorded
- * against the commit SHA and read back by redgreen_check.
+ * oc-sandbox — namespace "sandbox": sandbox_up, sandbox_test, sandbox_check,
+ * sandbox_gate, redgreen_check, sandbox_down (blueprint §7.2). Every run is
+ * fully isolated in Docker, built from the repo's own Dockerfiles and its single
+ * compose.yml, with a per-slice project name and no published ports. Test
+ * evidence is recorded against the commit SHA and read back by redgreen_check;
+ * static checks never create evidence.
  *
  * Worktree sessions share the canonical checkout's plugin registry, and
  * ctx.location is the plugin instance's location — NOT the session's — so
@@ -83,7 +84,7 @@ export default Plugin.define({
   id: "oc-sandbox",
   async setup(ctx) {
     console.log(
-      `[oc-sandbox] active (registry location: ${ctx.location.directory}; tools: sandbox_up, sandbox_test, sandbox_gate, redgreen_check, sandbox_down)`,
+      `[oc-sandbox] active (registry location: ${ctx.location.directory}; tools: sandbox_up, sandbox_test, sandbox_check, sandbox_gate, redgreen_check, sandbox_down)`,
     )
 
     /** The session's own working directory — a slice worktree for slice sessions. */
@@ -211,7 +212,9 @@ export default Plugin.define({
       if (assessment === "declared-empty") {
         return {
           ok: false,
-          blocked: `the AGENTS.md test contract in ${worktree} declares nothing usable (no test services, no generator, no smoke) — fix the contract`,
+          blocked:
+            `the AGENTS.md test contract in ${worktree} declares no dynamic verification steps ` +
+            "(no test services, no generator, no smoke) — static checks supplement these and cannot replace them; fix the contract",
           reason: "declared-empty-contract",
         }
       }
@@ -356,8 +359,63 @@ export default Plugin.define({
       )
 
       tool(
+        "check",
+        "Run the repo's declared static checks (lint, typecheck) in the isolated sandbox. One named check with focused args, or every declared check when omitted. Never records red/green evidence.",
+        {
+          slice: { type: "string" },
+          check: { type: "string", description: "static-check name from AGENTS.md test.checks (default: all declared checks)" },
+          args: { type: "array", items: { type: "string" }, description: "focused args; requires a named check" },
+        },
+        async (input: { slice: string; check?: string; args?: string[] }, context) => {
+          const wt = await sessionDir(context.sessionID)
+          const up = await ensureUp(wt)
+          if (!up.ok) return { content: `BLOCKED: ${up.blocked}` }
+          const contract = parseTestContract(readFrontMatter(wt))
+          const entries = input.check
+            ? Object.entries(contract.checks).filter(([key]) => key === input.check)
+            : Object.entries(contract.checks)
+          if (input.check && entries.length === 0) {
+            return {
+              content:
+                `BLOCKED: check '${input.check}' is not declared in the AGENTS.md test contract — ` +
+                "a caller error is not a check failure; nothing was recorded.",
+            }
+          }
+          if (!input.check && input.args?.length) {
+            return { content: "BLOCKED: focused args require a named check — run one declared check at a time." }
+          }
+          if (entries.length === 0) {
+            return {
+              content:
+                "BLOCKED: the AGENTS.md test contract declares no static checks — " +
+                "add test.checks for the repo's real lint/typecheck services.",
+            }
+          }
+          const args = input.check ? input.args ?? [] : []
+          const steps: { step: string; passed: boolean; detail?: string }[] = []
+          const secrets = envSecrets(wt)
+          for (const [key, service] of entries) {
+            const checkBlocked = await mountpointPreflight(wt, contract, up.state.id, up.state.backend)
+            if (checkBlocked) return { content: `BLOCKED: ${checkBlocked}` }
+            const argv = buildTestArgv(contract, up.state.id, service, args)
+            const run = await runArgv(up.state, argv, wt)
+            steps.push({
+              step: `static check ${key} (${service})`,
+              passed: run.exitCode === 0,
+              detail: redactTail(run.output, 200, secrets),
+            })
+          }
+          const passed = steps.every((s) => s.passed)
+          const report = steps
+            .map((s) => `  ${s.passed ? "✓" : "✗"} ${s.step}${s.detail ? ` — ${s.detail}` : ""}`)
+            .join("\n")
+          return { content: `sandbox_check ${passed ? "PASSED" : "FAILED"}:\n${report}` }
+        },
+      )
+
+      tool(
         "gate",
-        "The full pre-PR run: every test service in the contract, any declared generation drift check and the production-image smoke check, all isolated.",
+        "The full pre-PR run: every declared static check, every test service in the contract, any declared generation drift check and the production-image smoke check, all isolated.",
         { slice: { type: "string" } },
         async (_input, context) => {
           const wt = await sessionDir(context.sessionID)
@@ -373,6 +431,19 @@ export default Plugin.define({
           const preflight = async () => {
             const blocked = await mountpointPreflight(wt, contract, up.state.id, up.state.backend)
             return blocked ? { content: `BLOCKED: ${blocked}` } : null
+          }
+
+          // static checks run first and never become red/green evidence:
+          // a lint/typecheck pass is not a test pass
+          for (const [key, service] of Object.entries(contract.checks)) {
+            const checkBlocked = await preflight()
+            if (checkBlocked) return checkBlocked
+            const run = await runArgv(up.state, buildTestArgv(contract, up.state.id, service, []), wt)
+            steps.push({
+              step: `static check ${key} (${service})`,
+              passed: run.exitCode === 0,
+              detail: redactTail(run.output, 20, secrets),
+            })
           }
 
           for (const [key, service] of Object.entries(contract.services)) {

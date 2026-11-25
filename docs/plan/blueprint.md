@@ -176,7 +176,7 @@ V4.1 Flash $200.
   - subagent allow `explore`, `general`
 - **System prompt outline:**
   1. You are the Plan gateway into the two-mode flow. Follow the attached `using-agent-skills` and `oc-plan-gateway`; no separately invoked `/spec` or `/plan` is required. New work with no approved spec starts Define; an approved spec/PRD resumes slicing.
-  2. Always follow the loaded skill's process. Don't skip its interview, contextual Addy workflows or approval steps.
+  2. Always follow the loaded skill's process. Don't skip its interview, contextual Addy workflows or approval steps. At the start of Define, run the quick read-only project health check on the app repo's `AGENTS.md`, test contract, and `test.checks` declarations; report gaps as explicit remediation items and never edit the app repo directly from Plan.
   3. Output contract: the spec goes to `docs/spec/<slug>.md` before spec approval, decisions go to `docs/decisions/`, and Plan owns the spec branch/PR plus PRD through `oc-github`. Never hand these operations to Build or claim Plan is unconditionally read-only.
   4. Slices are vertical, each mergeable to `main` on its own, ≤ 1 fresh context of work, and each has `area:*` labels, a blocker list, a flag plan and acceptance criteria. A user-facing change is **one slice through every applicable layer** (for example migration → API → generated client → web → E2E), never split into tier-only PRs. Skip absent layers and generated artifacts; a self-contained full-stack app needs no imaginary backend or API client. Read the repo's `AGENTS.md` front matter for its logical components and stacks.
   5. Two approval checkpoints: after the spec, and before any slice issue is created. Treat hedged answers as not approved.
@@ -194,9 +194,9 @@ V4.1 Flash $200.
 - **System prompt outline:**
   1. You are the Build gateway (Build → Verify → Review → Ship). Follow attached `using-agent-skills` and `oc-build-gateway`, applying every conditional Addy skill whose trigger arises. Specs and slices come from `plan`. If a slice is ambiguous or doesn't converge, call `slice_block` with the reason and don't invent requirements.
   2. In the main checkout, `/build` is the user's persistent coordinator and never implements. It routes user feedback through `slice_message`; after a verified merge it calls `slice_finish`, confirms issue closure, calls `slice_sync`, closes a completed PRD, then starts unblocked slices and reports `slice_status`. READY/BLOCKED/MERGED notifications come back to this session.
-  3. In a slice worktree, work through every applicable layer in the vertical order from §9.3 (for example migration → API → generated client → web → E2E), skipping layers and artifacts the repo or slice does not have. For each acceptance criterion, follow addy's `/build` loop: a failing test-only commit (RED, through `sandbox_test`), then a code commit (GREEN). Every test runs in the isolated Docker setup through `oc-sandbox`, never on the host. Never edit or weaken a test to make it pass, and never hand-edit declared generated code.
+  3. In a slice worktree, work through every applicable layer in the vertical order from §9.3 (for example migration → API → generated client → web → E2E), skipping layers and artifacts the repo or slice does not have. For each acceptance criterion, follow addy's `/build` loop: a failing test-only commit (RED, through `sandbox_test`), then a code commit (GREEN). While writing or changing code, run the repo’s declared lint and typecheck services through `sandbox_check` and fix any failure before treating the increment as complete; static checks never create RED/GREEN evidence. Every test and static-check run happens in the isolated Docker setup through `oc-sandbox`, never on the host. Never edit or weaken a test to make it pass, and never hand-edit declared generated code.
   4. Then call `code-reviewer` (and `security-auditor` when `risk:security` is set or risky paths change), fix or answer every finding, run `sandbox_gate` and `redgreen_check`, push, open the PR through `oc-github`, and hand over to `oc-pr-monitor`.
-  5. Run tests only through `oc-sandbox` tools, never through raw docker.
+  5. Run tests and static checks only through `oc-sandbox` tools, never through raw docker.
 
 ### 4.3 `code-reviewer`, `security-auditor` (addy personas)
 
@@ -279,7 +279,8 @@ Errors must tell "OpenCode server unreachable" (the server needs a restart) apar
 | ---------------- | ---------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sandbox_up`     | `{ slice: string }`                            | `{ backend, id }`                  | Picks the backend (below). The ID is `s<N>-<6-char hash>`, kept under Docker's 64-byte hostname limit. Builds the test contract's images and warms them (dependencies up and healthy), so the first RED run isn't a cold build.                                                             |
 | `sandbox_test`   | `{ slice, service?: string, args?: string[] }` | `{ exit_code, passed, sha, tail }` | Runs one test service from the contract (default: the full suite) with optional focused args, for example one test file. Records `{sha, service, args, passed, at}` as evidence. `tail` is the last 200 lines with secrets redacted.                                                        |
-| `sandbox_gate`   | `{ slice }`                                    | `{ passed, steps[] }`              | The full pre-PR run: every test service in the contract, any declared generation drift check and the production-image smoke check, all in the isolated setup.                                                                                                                               |
+| `sandbox_check`  | `{ slice, check?: string, args?: string[] }`   | `{ passed, steps[] }`              | Runs one declared static-check service from `test.checks` (for example `lint` or `typecheck`), or every declared check when `check` is omitted. Never records red/green evidence; a lint/typecheck pass is not a test pass.                                                                 |
+| `sandbox_gate`   | `{ slice }`                                    | `{ passed, steps[] }`              | The full pre-PR run: every declared static check first, then every test service in the contract, any declared generation drift check and the production-image smoke check, all in the isolated setup. Static checks never create evidence.                                                  |
 | `redgreen_check` | `{ slice }`                                    | `{ ok, violations[] }`             | For each commit `main..HEAD`: a commit that changes only test paths must have a failing evidence record; the next commit that changes non-test paths must have a passing one. Declared generated code counts as neither. Test-path globs come from `AGENTS.md` front matter (`test_globs`). |
 | `sandbox_down`   | `{ slice: string }`                            | `{ ok }`                           | Tears down the slice's Compose project with its volumes and destroys the box.                                                                                                                                                                                                               |
 
@@ -317,7 +318,7 @@ Each is a short `SKILL.md` with `name` and `description` frontmatter. It describ
 
 - **oc-github:** PRD and slice issue creation, using its own templates (`skills/oc/oc-github/templates/`, §9.3; never repo templates). It creates missing labels on demand. Sets labels and dependencies, using the GitHub sub-issue and "blocked by" relationships (falling back to a "Blocked by" section). Opens the PR with the template and links `Closes #N` and `Part of #PRD`. Closes the PRD when its last slice merges.
 - **oc-worktree:** when and how to call `slice_*`, and what each state means.
-- **oc-sandbox:** the red/green loop through `sandbox_test`, focused runs vs full runs, and reading `redgreen_check`.
+- **oc-sandbox:** the red/green loop through `sandbox_test`, the static-check loop through `sandbox_check`, focused runs vs full runs, and reading `redgreen_check`.
 - **oc-pr-monitor:** handling a wake-up, the fix/reply rules and the round cap.
 - **addy-sync:** fetch addy at a target ref (default `main`), show the diff of `skills/addy/` and `references/` against `UPSTREAM.md`, apply only after approval, update `UPSTREAM.md`, and flag any skill that was renamed or removed and is still referenced in §6 or in the permissions.
 - **repo-setup:** propose §9 setup for an app repo using its actual single-app or multi-app shape. Show every file and setting before applying it, and apply only after approval. Branch protection and labels go through `gh api`.
@@ -348,6 +349,7 @@ This follows the template's §4: the standalone Docker test path.
   - There is no second Compose file and no override file.
 - **The flow always uses the Docker path, never the host path.** The host inner loop (`just test`, `just dev`) is for working by hand. Every agent test run, red/green evidence and gate uses the test and full profiles plus smoke, inside the slice's sandbox.
 - **Test targets, not runtime images.** Test containers build from a test target in each app's Dockerfile (the dev environment plus source, never shipped). Runtime images exclude dev dependencies and tests.
+- **Static checks are declared, not inferred.** The repo's real lint/typecheck services (for example `ruff check`, `ruff format --check`, `mypy`, `vp check`) are Compose services in the same test contract, declared under `test.checks` in `AGENTS.md`. They run through `sandbox_check` in the coding loop and first in `sandbox_gate`; they never create RED/GREEN evidence. A repo declares only the checks its stack actually has.
 - **Test databases are guarded.** Where a database exists, tests refuse to run against one whose name doesn't end in `_test`.
 - **Compose is for development and testing only, never production.** GitHub Actions builds, scans and deploys each app's runtime image separately. Production databases and services are external or run as separate services.
 - **Nothing is assumed from the host.** Test env values are committed dummies, and real secrets are never needed. No host ports are published, and the caller sets the project name (`-p <id>`).
@@ -378,13 +380,14 @@ test:
     test: "docker compose -f compose.yml --profile test run --rm {service} {args}"
     full: "docker compose -f compose.yml --profile full up -d --wait"
   services: { all: "test", app: "app-test", e2e: "e2e", smoke: "smoke" }
+  checks: { lint: "app-lint", typecheck: "app-typecheck" }
 test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
 ---
 ```
 
-`apps:` names logical components, whether they live at the root or under nested directories; a multi-app repo declares several entries. Add `contract: { generated: [...], generator_service: "..." }` only for real generated artifacts. Replace services and test globs with the repo's facts. The body describes each component, the flag convention, and points to `docs/spec/` and `docs/decisions/`.
+`apps:` names logical components, whether they live at the root or under nested directories; a multi-app repo declares several entries. Add `contract: { generated: [...], generator_service: "..." }` only for real generated artifacts. Replace services, checks and test globs with the repo's facts; `checks:` names the repo's real lint/typecheck services and is omitted when the stack has none. The body describes each component, the flag convention, and points to `docs/spec/` and `docs/decisions/`.
 
-**Vertical slice order inside one PR:** every applicable layer — for example migration (expand) → API test RED → API GREEN → regenerate any declared client (through the generator service; commit it) → web test RED → web GREEN → E2E for the user flow → `sandbox_gate`. Skip absent layers and steps the slice doesn't need; a full-stack app with no separate API contract has no API/client phase.
+**Vertical slice order inside one PR:** every applicable layer — for example migration (expand) → API test RED → API GREEN → regenerate any declared client (through the generator service; commit it) → web test RED → web GREEN → E2E for the user flow → `sandbox_gate`. While writing or changing code, run the relevant `sandbox_check` services (`lint`, `typecheck`) and fix failures before moving on; `sandbox_gate` then runs every declared static check before the dynamic steps. Skip absent layers and steps the slice doesn't need; a full-stack app with no separate API contract has no API/client phase.
 
 **Issue and PR bodies (config only, `skills/oc/oc-github/templates/`).** `oc-github` fills them in and creates issues and PRs with `gh … --body-file`, so GitHub never needs a repo template. `prd.md` has: Problem, Solution, User stories, Spec link (`docs/spec/…`), Slices (auto-filled), Out of scope. `slice.md` has: Parent PRD, What to build, Acceptance criteria, Apps touched (`area:<app>`), Contract change (yes/no), Flag plan, Blocked by.
 
@@ -424,17 +427,17 @@ It rejects any other runtime, any other image, privileged flags, and host mounts
 
 ## 12. Environment and secrets (the user enters every value)
 
-| Name                                 | Where                           | Purpose                                               |
-| ------------------------------------ | ------------------------------- | ----------------------------------------------------- |
-| OpenCode Go / Zen login              | `/connect` on each machine      | models                                                |
-| GitHub auth for `gh`                 | `gh auth login` on each machine | issues, PRs, monitor                                  |
-| `OC_SANDBOX_BACKEND`                 | env (optional)                  | `auto` \| `sysbox` \| `docker`                        |
-| `MCPJUNGLE_URL`                      | env (required)                  | absolute MCPJungle gateway URL (`https://<host>/mcp`) |
-| `MCPJUNGLE_TOKEN`                    | env (required)                  | bearer token for the MCPJungle gateway                |
-| `OPENCODE_WORKTREES_DIR`             | env (default `~/.opencode-worktrees`) | root for slice worktrees                        |
-| Real app secrets                     | The secrets manager         | never needed for tests (§9.2), never pulled by agents |
-| `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                      | sidecar access                                        |
-| PR review apps (optional)            | GitHub, per repo                | review threads from any tool                          |
+| Name                                 | Where                                 | Purpose                                               |
+| ------------------------------------ | ------------------------------------- | ----------------------------------------------------- |
+| OpenCode Go / Zen login              | `/connect` on each machine            | models                                                |
+| GitHub auth for `gh`                 | `gh auth login` on each machine       | issues, PRs, monitor                                  |
+| `OC_SANDBOX_BACKEND`                 | env (optional)                        | `auto` \| `sysbox` \| `docker`                        |
+| `MCPJUNGLE_URL`                      | env (required)                        | absolute MCPJungle gateway URL (`https://<host>/mcp`) |
+| `MCPJUNGLE_TOKEN`                    | env (required)                        | bearer token for the MCPJungle gateway                |
+| `OPENCODE_WORKTREES_DIR`             | env (default `~/.opencode-worktrees`) | root for slice worktrees                              |
+| Real app secrets                     | The secrets manager                   | never needed for tests (§9.2), never pulled by agents |
+| `OC_SANDBOX_URL`, `OC_SANDBOX_TOKEN` | server env                            | sidecar access                                        |
+| PR review apps (optional)            | GitHub, per repo                      | review threads from any tool                          |
 
 ## 13. This repo's own CI (`.github/workflows/ci.yml`)
 

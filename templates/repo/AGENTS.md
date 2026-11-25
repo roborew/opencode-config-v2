@@ -13,16 +13,19 @@ test:
     test: "docker compose -f compose.yml --profile test run --rm {service} {args}"
     full: "docker compose -f compose.yml --profile full up -d --wait"
   services: { all: "test", app: "app-test", e2e: "e2e", smoke: "smoke" }
+  checks: { lint: "app-lint", typecheck: "app-typecheck" }
 test_globs: ["tests/**", "e2e/**", "src/**/*.test.*"]
 ---
 
 <!-- Skeleton written by repo-setup (blueprint §9.3). The front matter above is
      a single full-stack Next.js example, not a required stack or layout. Replace
-     apps:, test: and test_globs: with this repo's real facts and keep the shape:
-     oc-sandbox, oc-skills and redgreen_check read them. apps: declares logical
-     components; it does not require an apps/ directory. Declare several entries
-     for a multi-app repo. Add contract: with generated paths and a generator
-     service only when generated artifacts actually exist. This file holds facts
+     apps:, test:, test_globs: and checks: with this repo's real facts and keep
+     the shape: oc-sandbox, oc-skills and redgreen_check read them. apps: declares
+     logical components; it does not require an apps/ directory. Declare several
+     entries for a multi-app repo. Add contract: with generated paths and a
+     generator service only when generated artifacts actually exist. checks:
+     maps this repo's real lint/typecheck services, built from the same Compose
+     test contract; omit checks the stack does not have. This file holds facts
      about this repo only; no issue templates, PR template or labels live here
      (D33). Remove every TODO marker once filled in. -->
 

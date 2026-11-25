@@ -28,8 +28,9 @@ Part of #{{prd_issue}}
 ## sandbox_gate result
 
 {{sandbox_gate}}
-<!-- passed/failed, plus applicable steps: every test service in the contract,
-     any generation drift check and the production-image smoke check -->
+<!-- passed/failed, plus applicable steps: every declared static check,
+     every test service in the contract, any generation drift check and the
+     production-image smoke check -->
 
 ## Review summary
 

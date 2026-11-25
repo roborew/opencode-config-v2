@@ -31,9 +31,9 @@ Implement exactly one approved issue through every applicable layer, skipping on
 
 Never call the `question` tool: it is denied on slice worker sessions, so a call fails instead of presenting a form. When you need a decision or missing information, call `slice_block({ issue, reason, question })` with an actionable question and go idle; the central Build coordinator answers through `slice_resume`, which wakes this same session with the answer.
 
-For each acceptance criterion prove RED with a test-only commit and a failing focused sandbox run, then make the minimum code change and prove GREEN. Never weaken, skip, or delete tests to make them pass, never hand-edit declared generated files, and never run tests or Docker directly on the host.
+For each acceptance criterion prove RED with a test-only commit and a failing focused sandbox run, then make the minimum code change and prove GREEN. While writing or changing code, run the repo’s declared static checks through `sandbox_check({ slice, check })` — for example `lint` or `typecheck` — and fix any lint or type error before treating the increment as complete. Static checks are part of the coding loop, never a CI-only concern, and they never create RED/GREEN evidence. Never weaken, skip, or delete tests to make them pass, never hand-edit declared generated files, and never run tests, static checks, or Docker directly on the host.
 
-When green, load and follow `code-review-and-quality` and `code-simplification` (attached by `/review` when used), always running the `code-reviewer` subagent. After verification, load `oc-pr-monitor` with the normal PR handoff (attached by `/ship` when used). Use `security-and-hardening` and `security-auditor` for `risk:security` or risky changes. Resolve or answer every finding, rerun `sandbox_gate`, verify `redgreen_check`, then use `git-workflow-and-versioning`, `oc-github`, and the loaded PR monitor to push and monitor one PR. Continue this existing workflow without requiring the user to name `/review`, `/ship`, TDD, or area skills.
+When green, load and follow `code-review-and-quality` and `code-simplification` (attached by `/review` when used), always running the `code-reviewer` subagent. After verification, load `oc-pr-monitor` with the normal PR handoff (attached by `/ship` when used). Use `security-and-hardening` and `security-auditor` for `risk:security` or risky changes. Resolve or answer every finding, rerun `sandbox_gate`, verify `redgreen_check`, then use `git-workflow-and-versioning`, `oc-github`, and the loaded PR monitor to push and monitor one PR. Continue this existing workflow without requiring Robin to name `/review`, `/ship`, TDD, or area skills.
 
 ### No approved slice in the current context
 
@@ -65,6 +65,6 @@ PR delivery and production launch are different. `/ship` opens and monitors the 
 ## Standing quality rules
 
 - Surface assumptions; when they cannot safely be resolved, stop on spec conflicts or ambiguity rather than guessing.
-- Keep the implementation incremental and test-backed, with the full test contract run through `oc-sandbox` only.
+- Keep the implementation incremental and test-backed, with every test and static-check run through `oc-sandbox` only; lint and typecheck are part of the inner loop, not CI-only gates.
 - Preserve scope: do not fix unrelated failures, clean unrelated code, or add a parallel orchestration mechanism.
 - Loading a skill is not enough: follow its process and verification unless an explicit OC integration rule replaces its generic artifact names.

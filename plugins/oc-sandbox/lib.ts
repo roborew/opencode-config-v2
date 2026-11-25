@@ -98,6 +98,8 @@ export function sandboxId(slice: string, worktree: string): string {
 export interface TestContract {
   /** service name mapping from AGENTS.md test.services (all, per-app, e2e, smoke) */
   services: Record<string, string>
+  /** static-check name → Compose service from AGENTS.md test.checks (lint, typecheck, per-app variants) */
+  checks: Record<string, string>
   /** the flow profiles from AGENTS.md test.profiles (values); other declared profiles (dev) are never the flow's */
   profiles: string[]
   /** the argv template from test.commands.test with {service}/{args} placeholders */
@@ -130,6 +132,14 @@ export function parseTestContract(frontMatter: string): TestContract {
       if (m) services[m[1]] = m[2]
     }
   }
+  const checks: Record<string, string> = {}
+  const checksMatch = frontMatter.match(/^  checks:\s*\{(.*)\}\s*$/m)
+  if (checksMatch) {
+    for (const pair of checksMatch[1].split(",")) {
+      const m = pair.match(/([a-z0-9-]+)\s*:\s*"([^"]+)"/)
+      if (m) checks[m[1]] = m[2]
+    }
+  }
   const testCommand =
     frontMatter.match(/^    test:\s*"(.*)"\s*$/m)?.[1] ??
     "docker compose -f compose.yml --profile test run --rm {service} {args}"
@@ -148,7 +158,7 @@ export function parseTestContract(frontMatter: string): TestContract {
   }
   const testGlobs = matchList(frontMatter, /^test_globs:\s*\[([^\]]*)\]/m)
   const generatedGlobs = matchList(frontMatter, /generated:\s*\[([^\]]*)\]/)
-  return { services, profiles, testCommand, fullCommand, testGlobs, generatedGlobs, generatorService, composeFile: "compose.yml" }
+  return { services, checks, profiles, testCommand, fullCommand, testGlobs, generatedGlobs, generatorService, composeFile: "compose.yml" }
 }
 
 function matchList(text: string, re: RegExp): string[] {
@@ -234,8 +244,9 @@ export type ContractAssessment =
   | "ok"
 
 /**
- * True when the contract's front matter declares nothing the flow can run:
- * no test service, no generator, no smoke. An attempted-but-empty declaration.
+ * True when the contract's front matter declares no dynamic verification the
+ * flow can run: no test service, no generator, no smoke. Static checks never
+ * count — they supplement dynamic verification and cannot replace it.
  */
 function isDeclaredEmptyContract(contract: TestContract): boolean {
   const testServices = Object.keys(contract.services).filter((key) => key !== "e2e" && key !== "smoke")
@@ -281,28 +292,30 @@ export function isBootstrapReason(reason: EnsureReason): boolean {
 }
 
 /**
- * The steps sandbox_gate would run for a contract: every non-e2e/smoke service,
- * the generation drift check when a generator service is declared, and the
- * full-profile up + smoke when a smoke service is declared. A contract that
- * declares none of these gets a refusal — zero steps can never print PASSED,
- * and the parser's default fallback (services: {}) is never a valid contract.
+ * The steps sandbox_gate would run for a contract: every declared static check
+ * first, then every non-e2e/smoke service, the generation drift check when a
+ * generator service is declared, and the full-profile up + smoke when a smoke
+ * service is declared. A contract that declares none of the dynamic steps gets
+ * a refusal — static checks supplement them and can never replace them, and the
+ * parser's default fallback (services: {}) is never a valid contract.
  */
 export function planGateSteps(contract: TestContract): { steps: string[] } | { refusal: string } {
-  const steps: string[] = []
+  const staticSteps = Object.entries(contract.checks).map(([key, service]) => `static check ${key} (${service})`)
+  const dynamicSteps: string[] = []
   for (const [key, service] of Object.entries(contract.services)) {
     if (key === "e2e" || key === "smoke") continue
-    steps.push(`test service ${service}`)
+    dynamicSteps.push(`test service ${service}`)
   }
-  if (contract.generatorService) steps.push("generation drift check")
+  if (contract.generatorService) dynamicSteps.push("generation drift check")
   if (contract.services.smoke) {
-    steps.push("full profile up (production images)")
-    steps.push(`smoke check (${contract.services.smoke})`)
+    dynamicSteps.push("full profile up (production images)")
+    dynamicSteps.push(`smoke check (${contract.services.smoke})`)
   }
-  return steps.length > 0
-    ? { steps }
+  return dynamicSteps.length > 0
+    ? { steps: [...staticSteps, ...dynamicSteps] }
     : {
       refusal:
-        "the contract declares no meaningful steps — no test services, no generator, no smoke; the repo's test contract is missing or empty",
+        "the contract declares no dynamic verification steps — no test services, no generator, no smoke; static checks supplement these and cannot replace them",
     }
 }
 

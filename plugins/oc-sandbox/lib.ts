@@ -122,24 +122,43 @@ export function readFrontMatter(directory: string): string {
   return end === -1 ? "" : text.slice(3, end)
 }
 
+/**
+ * Parses a name → service map from the AGENTS.md front matter. Accepts both
+ * the inline form (`checks: { lint: "app-lint" }`) and the block form
+ * (`checks:` followed by indented `lint: app-lint` lines), with or without
+ * quotes around values. Copying the documented block example must not silently
+ * produce an empty map.
+ */
+function parseServiceMap(frontMatter: string, key: string): Record<string, string> {
+  const map: Record<string, string> = {}
+  const inline = frontMatter.match(new RegExp(`^  ${key}:\\s*\\{(.*)\\}\\s*$`, "m"))
+  if (inline) {
+    for (const pair of inline[1].split(",")) {
+      const m = pair.match(/([a-z0-9-]+)\s*:\s*["']?([^"',}]+?)["']?\s*$/)
+      if (m) map[m[1]] = m[2].trim()
+    }
+    return map
+  }
+  const lines = frontMatter.split("\n")
+  const start = lines.findIndex((line) => new RegExp(`^  ${key}:\\s*$`).test(line))
+  if (start === -1) return map
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? ""
+    if (!line.trim()) continue
+    const m = line.match(/^    ([a-z0-9-]+)\s*:\s*["']?([a-z0-9-]+)["']?\s*(?:#.*)?$/)
+    if (m) {
+      map[m[1]] = m[2]
+      continue
+    }
+    if (!line.startsWith("     ")) break
+  }
+  return map
+}
+
 /** Parses the test contract from a repo's AGENTS.md front matter (§9.3). */
 export function parseTestContract(frontMatter: string): TestContract {
-  const services: Record<string, string> = {}
-  const servicesMatch = frontMatter.match(/^  services:\s*\{(.*)\}\s*$/m)
-  if (servicesMatch) {
-    for (const pair of servicesMatch[1].split(",")) {
-      const m = pair.match(/([a-z0-9-]+)\s*:\s*"([^"]+)"/)
-      if (m) services[m[1]] = m[2]
-    }
-  }
-  const checks: Record<string, string> = {}
-  const checksMatch = frontMatter.match(/^  checks:\s*\{(.*)\}\s*$/m)
-  if (checksMatch) {
-    for (const pair of checksMatch[1].split(",")) {
-      const m = pair.match(/([a-z0-9-]+)\s*:\s*"([^"]+)"/)
-      if (m) checks[m[1]] = m[2]
-    }
-  }
+  const services = parseServiceMap(frontMatter, "services")
+  const checks = parseServiceMap(frontMatter, "checks")
   const testCommand =
     frontMatter.match(/^    test:\s*"(.*)"\s*$/m)?.[1] ??
     "docker compose -f compose.yml --profile test run --rm {service} {args}"
@@ -168,6 +187,19 @@ function matchList(text: string, re: RegExp): string[] {
     .split(",")
     .map((s) => s.trim().replace(/^["']|["']$/g, ""))
     .filter(Boolean)
+}
+
+/**
+ * A Compose service may be a dynamic test or a static check, never both:
+ * otherwise the gate runs it twice and its dynamic run can record RED/GREEN
+ * evidence for a service the contract declared as a check.
+ */
+export function overlappingCheckServices(contract: TestContract): string[] {
+  const dynamic = new Set(Object.values(contract.services))
+  if (contract.generatorService) dynamic.add(contract.generatorService)
+  return Object.entries(contract.checks)
+    .filter(([, service]) => dynamic.has(service))
+    .map(([key, service]) => `${key} (${service})`)
 }
 
 /**
@@ -229,6 +261,7 @@ export type EnsureReason =
   | "missing-front-matter"
   | "malformed-front-matter"
   | "declared-empty-contract"
+  | "overlapping-check-service"
   | "backend-unavailable"
   | "mountpoint-preflight"
   | "sidecar-failed"
@@ -241,6 +274,7 @@ export type ContractAssessment =
   | "missing-front-matter"
   | "malformed-front-matter"
   | "declared-empty"
+  | "overlapping-check-service"
   | "ok"
 
 /**
@@ -274,7 +308,11 @@ export function hasUnterminatedFrontMatter(worktree: string): boolean {
  * absent one ("missing-compose", "missing-front-matter") is bootstrap RED.
  */
 export function assessContract(worktree: string, frontMatter: string): ContractAssessment {
-  if (frontMatter && isDeclaredEmptyContract(parseTestContract(frontMatter))) return "declared-empty"
+  if (frontMatter) {
+    const contract = parseTestContract(frontMatter)
+    if (overlappingCheckServices(contract).length > 0) return "overlapping-check-service"
+    if (isDeclaredEmptyContract(contract)) return "declared-empty"
+  }
   if (!frontMatter && hasUnterminatedFrontMatter(worktree)) return "malformed-front-matter"
   if (!existsSync(join(worktree, "compose.yml"))) return "missing-compose"
   if (!frontMatter) return "missing-front-matter"
@@ -300,6 +338,14 @@ export function isBootstrapReason(reason: EnsureReason): boolean {
  * parser's default fallback (services: {}) is never a valid contract.
  */
 export function planGateSteps(contract: TestContract): { steps: string[] } | { refusal: string } {
+  const overlap = overlappingCheckServices(contract)
+  if (overlap.length > 0) {
+    return {
+      refusal:
+        `the contract reuses Compose services in both test.services and test.checks (${overlap.join(", ")}) — ` +
+        "a service must be either a dynamic test or a static check, never both",
+    }
+  }
   const staticSteps = Object.entries(contract.checks).map(([key, service]) => `static check ${key} (${service})`)
   const dynamicSteps: string[] = []
   for (const [key, service] of Object.entries(contract.services)) {

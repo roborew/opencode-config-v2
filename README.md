@@ -33,7 +33,7 @@ separately by the test contract in `docs/plan/blueprint.md` (§7.2, §9.2).
 ### Mac
 
 1. Back up the old config if any, then clone this repo as the config directory:
-   `git clone git@github.com:OWNER/opencode-config-v2.git ~/.config/opencode`
+   `git clone git@github.com:roborew/opencode-config-v2.git ~/.config/opencode`
    (the old v1 config that lived there is retired — nothing is copied from it).
 2. `cd ~/.config/opencode && npm install` — installs `@opencode/plugin`, which the
    plugins in `plugins/` resolve at runtime.

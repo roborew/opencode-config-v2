@@ -19,6 +19,7 @@ import {
   globMatch,
   isBootstrapReason,
   materializeMountpoints,
+  overlappingCheckServices,
   parseTestContract,
   planGateSteps,
   planMountpoints,
@@ -108,6 +109,24 @@ describe("parseTestContract + argv building", () => {
     expect(contract.testGlobs).toContain("apps/*/tests/**")
     expect(contract.profiles).toEqual(["test", "full"])
     expect(contract.fullCommand).toContain("--profile full")
+  })
+
+  it("parses the documented block form with unquoted or quoted service values", () => {
+    const contract = parseTestContract(`test:
+  services:
+    all: test
+    api: api-test
+  checks:
+    lint: app-lint
+    typecheck: "app-typecheck"
+`)
+    expect(contract.services).toEqual({ all: "test", api: "api-test" })
+    expect(contract.checks).toEqual({ lint: "app-lint", typecheck: "app-typecheck" })
+  })
+
+  it("detects a Compose service reused by test.services and test.checks", () => {
+    const contract = parseTestContract('  services: { all: "test" }\n  checks: { lint: "test" }\n')
+    expect(overlappingCheckServices(contract)).toEqual(["lint (test)"])
   })
 
   it("builds an isolated per-slice static-check argv with no published ports", () => {
@@ -283,6 +302,17 @@ describe("bootstrap: contract assessment", () => {
     writeFileSync(join(dir, "AGENTS.md"), `---\n${FRONT_MATTER.trim()}\n---\n`)
     expect(assessContract(dir, readFrontMatter(dir))).toBe("ok")
   })
+
+  it("a service reused by test.services and test.checks -> overlapping-check-service", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-"))
+    tmpDirs.push(dir)
+    writeFileSync(join(dir, "compose.yml"), "services: {}\n")
+    writeFileSync(
+      join(dir, "AGENTS.md"),
+      '---\n  services: { all: "test" }\n  checks: { lint: "test" }\n---\n',
+    )
+    expect(assessContract(dir, readFrontMatter(dir))).toBe("overlapping-check-service")
+  })
 })
 
 describe("bootstrap: eligible reasons", () => {
@@ -291,6 +321,7 @@ describe("bootstrap: eligible reasons", () => {
     expect(isBootstrapReason("missing-front-matter")).toBe(true)
     const others: EnsureReason[] = [
       "declared-empty-contract",
+      "overlapping-check-service",
       "malformed-front-matter",
       "contract-removed-mid-slice",
       "backend-unavailable",
@@ -349,6 +380,12 @@ describe("bootstrap: gate planning", () => {
     const plan = planGateSteps(parseTestContract('  checks: { lint: "app-lint", typecheck: "app-typecheck" }\n'))
     if (!("refusal" in plan)) throw new Error("expected a refusal for a checks-only contract")
     expect(plan.refusal).toContain("static checks supplement")
+  })
+
+  it("refuses a contract that reuses a service in test.services and test.checks", () => {
+    const plan = planGateSteps(parseTestContract('  services: { all: "test" }\n  checks: { lint: "test" }\n'))
+    if (!("refusal" in plan)) throw new Error("expected a refusal for overlapping check/test services")
+    expect(plan.refusal).toContain("never both")
   })
 
   it("a declared smoke still plans the full-profile up and smoke steps", () => {
@@ -552,6 +589,19 @@ describe("bootstrap wiring through the plugin (no Docker)", () => {
     const res = await tools.get("check").execute({ slice: "11" }, { sessionID: "s1" })
     expect(res.content.startsWith("BLOCKED")).toBe(true)
     expect(res.content).toContain("declares no static checks")
+    expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
+  })
+
+  it("a contract reusing a service in test.services and test.checks stays BLOCKED and records nothing", async () => {
+    const wt = gitWorktree({
+      "compose.yml": "services: {}\n",
+      "AGENTS.md": '---\n  services: { all: "test" }\n  checks: { lint: "test" }\n---\n',
+    })
+    const { tools, values } = await setupSandbox(wt)
+    values.set("sandboxes/local", { id: sandboxId("local", wt), backend: "docker", createdAt: Date.now() })
+    const res = await tools.get("test").execute({ slice: "11" }, { sessionID: "s1" })
+    expect(res.content.startsWith("BLOCKED")).toBe(true)
+    expect(res.content).toContain("never both")
     expect([...values.keys()].some((key) => key.startsWith("evidence/"))).toBe(false)
   })
 

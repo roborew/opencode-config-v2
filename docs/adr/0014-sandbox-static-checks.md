@@ -19,9 +19,10 @@ test:
     typecheck: app-typecheck
 ```
 
-- `checks` is an inline name → Compose service map, like `services`.
+- `checks` is a name → Compose service map, like `services`, accepted in inline or block form with quoted or unquoted values.
 - Keys are flexible (`lint`, `typecheck`, `api-lint`, `web-typecheck`, …) so multi-app repos can declare per-component checks.
 - Values are Compose services in the same `test` profile, built from the repo's own test targets.
+- A Compose service may appear in `services` or `checks`, never both: the gate would run it twice and its dynamic run could record evidence for a service declared as a static check.
 - A repo declares only the checks its stack actually has. Checks are never invented just to fill the map.
 
 `oc-sandbox` gains `sandbox_check({ slice, check?, args? })`:

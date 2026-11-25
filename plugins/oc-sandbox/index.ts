@@ -218,6 +218,15 @@ export default Plugin.define({
           reason: "declared-empty-contract",
         }
       }
+      if (assessment === "overlapping-check-service") {
+        return {
+          ok: false,
+          blocked:
+            `the AGENTS.md test contract in ${worktree} reuses a Compose service in both test.services and test.checks — ` +
+            "a service must be either a dynamic test or a static check, never both; fix the contract",
+          reason: "overlapping-check-service",
+        }
+      }
       if (assessment === "malformed-front-matter") {
         return {
           ok: false,

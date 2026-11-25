@@ -233,7 +233,10 @@ A combined commit touching both trees carries both trailers. Separate commits ne
 
 5. **Apply only approved changes**
    - Copy complete managed directories and remove only stale paths within those managed roots.
-   - Leave `plugins/oc-skills/`, gateways, lifecycle commands, and existing Plan/Build Matt denial unchanged.
+   - Apply only the separately approved Addy compatibility edits to lifecycle references,
+     gateways, permissions, tests, or documentation. Keep Matt routing out of
+     `plugins/oc-skills/`, gateways, and lifecycle commands, and leave the existing
+     Plan/Build Matt denial unchanged.
    - Update each `UPSTREAM.md`, licence, production manifest, and only the approved compatibility wiring.
    - Never push, publish, open issues/PRs, merge, or commit automatically. If the user separately asks for a commit, require the appropriate trailer(s).
 

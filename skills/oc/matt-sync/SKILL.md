@@ -45,16 +45,22 @@ This adapter is the only thing that may change it.
 
 Only after approval:
 
-1. Copy the complete promoted skill folders, preserving relative
-   `engineering/` and `productivity/` grouping and file modes.
+1. Mirror each promoted skill directory from the release instead of copying
+   over the existing one: remove the destination folder (or sync with deletion)
+   before copying every file, so a file the release no longer contains, such as
+   a dropped `mocking.md`, cannot survive in the vendored copy. Preserve
+   relative `engineering/` and `productivity/` grouping and file modes.
 2. Remove only previously vendored skill folders that are no longer promoted or
    no longer exist upstream.
-3. Copy the upstream `LICENSE` and `.claude-plugin/plugin.json` verbatim and
+3. Compare before-and-after snapshots of `skills/matt/` against the staged
+   release so the vendored tree matches it exactly, including removals, renamed
+   companions and file modes.
+4. Copy the upstream `LICENSE` and `.claude-plugin/plugin.json` verbatim and
    update them if upstream did.
-4. Update `UPSTREAM.md` with the repository URL, release tag, tag object when
+5. Update `UPSTREAM.md` with the repository URL, release tag, tag object when
    relevant, full commit SHA, date and licence.
-5. Apply the separately approved `agents/matt.md` permission update.
-6. The resulting commit must carry a `Matt-Sync: <full-sha>` trailer naming the
+6. Apply the separately approved `agents/matt.md` permission update.
+7. The resulting commit must carry a `Matt-Sync: <full-sha>` trailer naming the
    upstream commit. CI rejects `skills/matt/` changes without it.
 
 ## After any sync

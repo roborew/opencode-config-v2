@@ -138,7 +138,8 @@ for full rendering.
 
 ## Update addy's and Matt's skills
 
-Ask for `/sync-skills`. It resolves the latest stable (non-draft,
+Open a session in your `opencode-config-v2` checkout and ask for `/sync-skills`;
+it refuses to run in an app repo. It resolves the latest stable (non-draft,
 non-prerelease) GitHub release for both upstreams to full commit SHAs, shows one
 combined diff and lifecycle-impact report, and applies only after you approve.
 `main` is never the default or a fallback. You can pin a reproducible update:

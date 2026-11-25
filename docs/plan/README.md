@@ -28,6 +28,12 @@ Ticket 01 settled every former [spike] item on 2026-11-14 (`../adr/0009-spike-re
 - `capability-map-local-quality-feedback.md`
 - `spec-sandbox-static-checks.md`
 - `spec-plan-project-health.md`
+- `capability-map-lifecycle-assurance.md` (draft, awaiting approval)
+- `spec-lifecycle-contract.md` (draft, awaiting approval)
+- `spec-skill-enforcement.md` (draft, awaiting approval)
+- `spec-delivery-readiness.md` (draft, awaiting approval)
+- `plan-lifecycle-assurance.md` (draft, awaiting approval)
 
-These are later, approved additions to the original plan pack; they are not part
-of the numbered ticket build order above.
+The local-quality-feedback documents are later, approved additions to the
+original plan pack. Lifecycle-assurance documents are planning-only drafts.
+Neither is part of the numbered ticket build order above.

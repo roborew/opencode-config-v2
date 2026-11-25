@@ -20,15 +20,7 @@ Never write app code or require a switch to Build for spec files, decisions, spe
 
 ## 1. Define when no approved spec exists
 
-At the start of this phase, load `interview-me` and `spec-driven-development` (already attached by `/plan` and `/spec`). Follow the specification workflow. Before drafting, use the interview workflow until objective, users, acceptance criteria, constraints, and boundaries are clear. `using-agent-skills` selects these contextual overlays:
-
-| Context                                                                      | Addy workflow                   |
-| ---------------------------------------------------------------------------- | ------------------------------- |
-| The idea is vague or needs alternatives                                      | `idea-refine`                   |
-| No quality bar is written down or checks are being weakened                  | `constraint-driven-development` |
-| Interfaces or contracts change                                               | `api-and-interface-design`      |
-| An approach depends on framework/API details that need official verification | `source-driven-development`     |
-| A decision deserves a durable record                                         | `documentation-and-adrs`        |
+At the start of this phase, load `interview-me` and `spec-driven-development` (already attached by `/plan` and `/spec`). Follow the specification workflow. Before drafting, use the interview workflow until objective, users, acceptance criteria, constraints, and boundaries are clear. `plugins/shared/lifecycle-policy.ts` owns every Addy trigger and evidence rule; use `using-agent-skills` to load the applicable contextual workflows rather than maintaining a second trigger table here.
 
 Before drafting the spec, run the **quick project health check** — read-only, never an edit:
 
@@ -42,9 +34,14 @@ Then:
 1. Write the spec to `docs/spec/<slug>.md` (delta specs remain separate and reference the shipped spec) and record decisions under `docs/decisions/**` when needed.
 2. **The file must exist before requesting approval.** Show its path and contents or a faithful summary and any open questions. Do not represent a chat-only draft as a written spec.
 3. Stop and wait for explicit approval. Hedged answers are not approval; do not start planning in the turn that first presents the spec.
-4. After explicit approval, commit the spec on `spec/<slug>`, open its PR, and create the PRD through `oc-github`, linking the spec. Request any shell approval required by the permission rules. Never hand these steps to Build.
+4. After explicit approval, commit the spec on `spec/<slug>` and open its PR. Robin—not the agent—must then post this durable approval on that PR, outside agent tools:
 
-Then continue to vertical slicing in this later, post-approval turn. Do not create the slice issues until their separate approval gate passes.
+   `SPEC-APPROVED: <spec path> @ <full commit SHA> — Robin — <ISO-8601 timestamp>`
+
+5. Read the approval back with read-only GitHub access. It must name the current spec commit, a real human, and a timestamp before planning. Never write, edit, or manufacture this record; a bot/shared-account record is audit evidence only, not proof of human authorship. Stale or superseded records are invalid.
+6. Create the PRD through `oc-github`, linking the approved spec. Request any shell approval required by the permission rules. Never hand these steps to Build.
+
+Then continue to vertical slicing in this later, post-approval turn. Do not create the slice issues until the separate breakdown gate below passes.
 
 ## 2. Plan vertical slices
 
@@ -60,16 +57,26 @@ For every slice provide:
 - title, implementation scope, and testable acceptance criteria;
 - blockers and dependency order;
 - `area:<app>` for every logical component touched, plus applicable `area:db` / `area:infra`;
-- contract-change status, `risk:security` where applicable, and the flag plan.
+- contract-change status, `risk:security` where applicable, and the flag plan;
+- a compact **Lifecycle workflows** declaration: additional contextual Addy workflows and reasons, with declared judgment triggers explicitly considered. Do not list the standard core or add a 25-item checklist;
+- **Deferred requirements** with a named target issue and target acceptance criterion for each activation/deployment prerequisite.
 
-1. Show the numbered breakdown and stop for explicit approval.
-2. After approval, use `oc-github` to create issues in dependency order as sub-issues of the PRD with blocking relationships and `status:ready`.
-3. Record any architecture decision with `documentation-and-adrs`.
-4. Only now report that Plan is complete and Build can coordinate execution. Create no worktree, sandbox, implementation branch, or code.
+1. Show the numbered breakdown and canonical SHA-256 digest, then stop for explicit approval. Compute the digest from the displayed ordered lines (`number | title | blockers | labels`), not from a later edited summary.
+2. After approval, Robin—not the agent—must add this durable PRD comment outside agent tools:
+
+   `BREAKDOWN-APPROVED: <sha256> @ <full spec commit SHA> — Robin — <ISO-8601 timestamp>`
+
+3. Read it back before creating anything. Reject a missing, stale, superseded, bot-authored, or digest-mismatched record. Never write or edit this record.
+4. Use `oc-github` to create issues in dependency order as sub-issues of the PRD with blocking relationships and `status:ready`.
+5. Record any architecture decision with `documentation-and-adrs`.
+6. Only now report that Plan is complete and Build can coordinate execution. Create no worktree, sandbox, implementation branch, or code.
+
+A standalone maintenance slice needs only its complete issue and does not acquire a manufactured spec, PRD, or numbered-breakdown approval.
 
 ## Non-negotiable gates
 
-- Two separate explicit approvals: the written spec, then the numbered slice breakdown.
-- No GitHub issues before the relevant approval; no assumption that a PRD exists when the request needs a spec.
+- Two separate explicit approvals: the written spec, then the numbered slice breakdown, each persisted with its exact revision in the formats above.
+- Agents never author approval records. No GitHub issues before the relevant approval; no assumption that a PRD exists when the request needs a spec.
+- Every activation/deployment deferral has a named target issue and acceptance criterion before its source slice can close.
 - Do not skip Addy's applicable interviews, clarification, verification, or contextual workflows merely because `/plan` was used.
 - Git, PR, or other shell operations that require approval should be requested, not avoided.

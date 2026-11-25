@@ -19,8 +19,19 @@ no flow reference material.
 
 ## Creating slice issues (after breakdown approval)
 
+Approval evidence is read-only to agents. Before creating anything, verify the
+PRD contains Robin's current `BREAKDOWN-APPROVED: <sha256> @ <spec SHA>` comment
+with a timestamp, correct digest and spec revision. Never post or edit the
+approval record, and reject a missing, stale, superseded or bot-authored one.
+Standalone maintenance slices are exempt from PRD approval but still need their
+complete issue.
+
 1. Fill `templates/slice.md` per slice: Parent PRD, What to build, Acceptance
-   criteria, Apps touched, Contract change, Flag plan, Blocked by.
+   criteria, Apps touched, Lifecycle workflows, Contract change, Flag plan,
+   Blocked by, Deferred requirements. The lifecycle section lists only
+   additional contextual workflows/reasons and explicitly considers declared
+   judgment triggers. Every deferral names its target issue and target
+   acceptance criterion.
 2. Create issues in dependency order as sub-issues of the PRD
    (`gh issue create` then the GitHub sub-issue API via `gh api`), label each
    `slice` plus one `area:<app>` per app it touches — the app names come from
@@ -29,7 +40,9 @@ no flow reference material.
 3. Record dependencies as GitHub blocking relationships where available;
    otherwise as the "Blocked by" section of the body.
 4. Append `- #<n> — <title>` to the PRD issue's Slices section (`gh issue edit
-   <prd> --body-file`) as each slice is created.
+   <prd> --body-file`) as each slice is created. Before closing a source slice,
+   verify every deferred requirement now exists in its named target's
+   acceptance criteria.
 
 ## Opening the PR
 

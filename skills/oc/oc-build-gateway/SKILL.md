@@ -41,24 +41,17 @@ Do not silently manufacture the heavyweight slice workflow for an isolated quest
 
 ## Contextual Addy workflows
 
-Use every applicable workflow when its trigger arises, not every workflow on every task. Labels provide deterministic overlays, but real diff/task context also applies even when a label is missing.
+`plugins/shared/lifecycle-policy.ts` owns the canonical trigger and evidence
+contract; this gateway owns only the phase transitions and handoffs. Use every
+applicable workflow when instructed or when context changes, not every workflow
+on every task. Labels and app facts provide deterministic context; the actual
+working-tree and final diff also apply even when a label is missing.
 
-| Context                                                                                          | Addy workflow                       |
-| ------------------------------------------------------------------------------------------------ | ----------------------------------- |
-| UI implementation                                                                                | `frontend-ui-engineering`           |
-| API/interface or contract design                                                                 | `api-and-interface-design`          |
-| Browser-flow verification                                                                        | `browser-testing-with-devtools`     |
-| Official-doc verification is needed for correct implementation                                   | `source-driven-development`         |
-| Non-trivial/high-stakes decisions or unfamiliar code                                             | `doubt-driven-development`          |
-| Test/build failures or behavior stops matching expectations                                      | `debugging-and-error-recovery`      |
-| Database migration, retirement, or rollout compatibility                                         | `deprecation-and-migration`         |
-| CI/CD pipeline changes or `area:infra`                                                           | `ci-cd-and-automation`              |
-| Untrusted data/auth/secrets, security-sensitive changes, or `risk:security`                      | `security-and-hardening`            |
-| Performance requirement, regression, or measured bottleneck                                      | `performance-optimization`          |
-| Production logs/metrics/traces/alerts needed; instrument as implemented, not after               | `observability-and-instrumentation` |
-| Architecture decision or future context needs recording                                          | `documentation-and-adrs`            |
-| Missing quality bar or pressure to silence/weaken checks                                         | `constraint-driven-development`     |
-| Actual production deployment, launch checklist, staged rollout, monitoring, or rollback planning | `shipping-and-launch`               |
+Declared judgment triggers (for example official-doc need, high stakes,
+performance requirement, observability or a durable decision) must be recorded
+in the approved slice or explicitly resolved. If applicability is ambiguous,
+call `slice_block` with the question instead of guessing or silently marking it
+not applicable.
 
 PR delivery and production launch are different. `/ship` opens and monitors the PR; it does **not** automatically invoke `shipping-and-launch`, merge, deploy, or relax branch/deployment protections. The launch workflow applies only when release/deployment work is actually requested, and existing denies still prevent autonomous deployment.
 

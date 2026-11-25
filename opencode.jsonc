@@ -7,6 +7,8 @@
   // Two primary modes override OpenCode's built-in agents by ID (D22):
   //   plan  = Define + Plan   (Kimi K3.1 Pro, Go)
   //   build = Build → Verify → Review → Ship (DeepSeek V4.1 Flash, Go)
+  // No other agent is a primary mode: matt and skill-admin are subagents reached
+  // only through /matts-skills and /sync-skills, so the picker shows just these two.
   // Models come from OpenCode Zen (opencode) and OpenCode Go (opencode-go) only (D7, D27).
   "model": "opencode-go/deepseek-v4.1-flash",
   "default_agent": "build",

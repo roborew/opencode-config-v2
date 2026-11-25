@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest"
 import { LIFECYCLE_POLICY } from "../plugins/shared/lifecycle-policy"
 
 type Config = {
-  agents?: Record<string, { permissions?: { action: string; resource: string; effect: string }[] }>
+  agents?: Record<
+    string,
+    { mode?: string; permissions?: { action: string; resource: string; effect: string }[] }
+  >
 }
 
 type Manifest = { version: string; skills: string[] }
@@ -70,6 +73,11 @@ function allowed(permissions: Map<string, string>): Set<string> {
   )
 }
 
+function frontMatterValue(path: string, field: string): string | undefined {
+  const match = readFileSync(path, "utf8").match(new RegExp(`^${field}:\\s*(\\S+)\\s*$`, "m"))
+  return match?.[1]?.replace(/^["']|["']$/g, "")
+}
+
 const mattPermissions = markdownSkillPermissions("agents/matt.md")
 const adminPermissions = markdownSkillPermissions("agents/skill-admin.md")
 
@@ -121,6 +129,31 @@ describe("vendored Matt production skills", () => {
 })
 
 describe("manual-only OpenCode integration", () => {
+  it("keeps plan and build as the only primary agents", () => {
+    const markdownModes = readdirSync("agents")
+      .filter((file) => file.endsWith(".md"))
+      .map((file) => [file, frontMatterValue(`agents/${file}`, "mode")] as const)
+
+    for (const [file, mode] of markdownModes) expect(mode, file).toBe("subagent")
+
+    const configuredPrimary = Object.entries(config.agents ?? {})
+      .filter(([, definition]) => definition.mode === "primary")
+      .map(([id]) => id)
+    expect(configuredPrimary).toEqual([])
+  })
+
+  it("runs the manual commands in the current session", () => {
+    const commands = [
+      ["commands/matts-skills.md", "matt"],
+      ["commands/sync-skills.md", "skill-admin"],
+    ] as const
+
+    for (const [path, agent] of commands) {
+      expect(frontMatterValue(path, "agent")).toBe(agent)
+      expect(frontMatterValue(path, "subagent"), path).toBe("false")
+    }
+  })
+
   it("exposes one Matt workflow command and only the combined sync command", () => {
     const command = readFileSync("commands/matts-skills.md", "utf8")
     expect(command).toContain("agent: matt")

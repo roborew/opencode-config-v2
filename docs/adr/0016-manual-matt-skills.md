@@ -26,6 +26,10 @@ Keep Matt outside the Addy delivery lifecycle:
 - A dedicated `skill-admin` utility agent runs approval-gated synchronization and
   cannot run Matt or Addy workflows.
 
+Both utility agents are `mode: subagent`. `/matts-skills` and `/sync-skills` select
+them in the current session (`subagent: false`), so the selectable primary modes
+remain exactly Plan and Build.
+
 Synchronize both upstreams through `/sync-skills`. It resolves each upstream's
 latest non-draft, non-prerelease release to a full commit SHA, stages and
 validates both snapshots, reports one combined diff plus lifecycle impact, and

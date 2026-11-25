@@ -1,6 +1,6 @@
 # Glossary
 
-- **Mode:** one of the two delivery-lifecycle primary agents. **plan** handles Define + Plan; **build** handles Build → Verify → Review → Ship. The **matt** and **skill-admin** utility agents are manual-only and are not lifecycle modes or gateways.
+- **Mode:** one of the two delivery-lifecycle primary agents. **plan** handles Define + Plan; **build** handles Build → Verify → Review → Ship. The **matt** and **skill-admin** utility agents are manual-only subagents (`mode: subagent`), not lifecycle modes, gateways or selectable primary agents; `/matts-skills` and `/sync-skills` reach them in the current session.
 - **PRD (umbrella):** a GitHub issue (label `prd`) holding a product requirement and linking its spec in `docs/spec/`. It is never merged as one unit, and it closes when its last slice merges.
 - **Slice:** a thin vertical change, independently reviewable and mergeable to `main`. It's a sub-issue of a PRD (label `slice`) or stands alone for a targeted change. Don't call it a ticket, stage, task or sub-PR.
 - **Slice worktree:** a git worktree off `origin/main` for exactly one slice, on branch `slice/<N>-<slug>`, with its own OpenCode session.

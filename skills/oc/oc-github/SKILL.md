@@ -11,6 +11,10 @@ no flow reference material.
 
 ## Creating the PRD issue (after spec approval)
 
+The spec PR is the review surface and may be opened before approval. The PRD is
+not a gate: create it immediately after the single `SPEC-APPROVED` comment on the
+spec PR has been read back.
+
 1. Fill `templates/prd.md` (Problem, Solution, User stories, Spec link, Slices
    — left as "auto-filled" for now, Out of scope) from the approved spec.
 2. Create it with `gh issue create --body-file <filled.md> --title "<PRD title>"`,
@@ -20,11 +24,15 @@ no flow reference material.
 ## Creating slice issues (after breakdown approval)
 
 Approval evidence is read-only to agents. Before creating anything, verify the
-PRD contains Robin's current `BREAKDOWN-APPROVED: <sha256> @ <spec SHA>` comment
-with a timestamp, correct digest and spec revision. Never post or edit the
-approval record, and reject a missing, stale, superseded or bot-authored one.
-Standalone maintenance slices are exempt from PRD approval but still need their
-complete issue.
+PRD contains Robin's current
+`BREAKDOWN-APPROVED: <sha256> @ <full spec commit SHA> — Robin` comment with the
+correct digest and spec revision. GitHub's `created_at` on that comment is the
+authoritative timestamp; the record carries no typed timestamp. Accept any
+owner-authored comment containing the keyword and matching digest. Agents may
+post the labelled `BREAKDOWN-APPROVAL-REQUEST` record, but it is never approval
+evidence: never post or edit the approval record, and reject a missing, stale,
+superseded or bot-authored one. Standalone maintenance slices are exempt from
+PRD approval but still need their complete issue.
 
 1. Fill `templates/slice.md` per slice: Parent PRD, What to build, Acceptance
    criteria, Apps touched, Lifecycle workflows, Contract change, Flag plan,

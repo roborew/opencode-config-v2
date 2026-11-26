@@ -155,7 +155,7 @@ Resolved 2026-11-14 — evidence and consequences in `../adr/0009-spike-results.
 - The behaviours these requirements must keep are listed in blueprint §14: short sandbox IDs, `.env` files copied without printing values, a sandbox warm-up, an inode guard before cleanup, clear server-down vs not-a-worktree errors, and only plugins touching git worktree/docker.
 - Nothing is copied from earlier config repos. addy's skills and personas are the only vendored content, pinned at commit `39b723c` under the MIT licence.
 - The opencode-server work (tickets 09–10) happens in that repo against the contract in blueprint §10–11.
-- Nothing is pushed or published, and no GitHub issues are opened, until the user approves.
+- No GitHub issues are opened before the user approves. The spec branch and its PR are the review surface and may be opened before approval. The user merges; agents never merge, never force-push, and never push to `main`.
 
 ## Resolved Questions
 

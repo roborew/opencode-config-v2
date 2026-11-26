@@ -16,14 +16,21 @@ between worktrees.
    Plan first runs the quick read-only project health check on the repo's
    `AGENTS.md`, test contract, and lint/typecheck declarations, and records any
    gap as an explicit remediation item in the spec. Plan then writes
-   `docs/spec/<slug>.md` before requesting approval, then owns the spec branch/PR
-   and PRD after approval. Hedged answers are not approval.
-2. **Continue in Plan after spec approval** — it proposes vertical slices through
-   every applicable layer, skipping layers the repo does not have, then shows you
-   the numbered breakdown. On this second explicit approval, it creates sub-issues
-   with `area:*` labels, blockers and `status:ready`. A PRD with verified linked-spec
-   approval can also be passed as `/plan <PRD>` to resume here. Plan owns these outputs;
-   switching to Build is not needed for file writes or GitHub issue creation.
+   `docs/spec/<slug>.md` after the interview, commits it on `spec/<slug>`, opens
+   the spec PR as the review surface, posts the labelled approval request, and
+   starts the read-only watcher. The spec PR may be opened before approval; it is
+   never merged by an agent.
+2. **Approve the spec on its PR** — add the single
+   `SPEC-APPROVED: <spec path> @ <full commit SHA> — Robin` comment; GitHub's
+   `created_at` is the timestamp. Plan reads it back, creates the PRD immediately
+   (the PRD is not a gate), then proposes vertical slices through every applicable
+   layer, skipping layers the repo does not have. It posts the canonical breakdown
+   lines and digest on the PRD and watches for your one `BREAKDOWN-APPROVED`
+   comment. On that approval it creates sub-issues with `area:*` labels, blockers
+   and `status:ready`. A PRD with verified linked-spec approval can also be passed
+   as `/plan <PRD>` to resume here. Plan owns these outputs; switching to Build is
+   not needed for file writes or GitHub issue creation. Hedged chat replies are
+   not approval.
 3. **Switch to Build** — this central session is now your persistent build
    coordinator. It starts up to 3 unblocked slices. Each gets a worktree off
    `origin/main` (`slice/<N>-<slug>`) and a session already running `/build #N`.

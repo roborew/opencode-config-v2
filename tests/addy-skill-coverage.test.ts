@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { parse, type ParseError } from "jsonc-parser"
 import { describe, expect, it } from "vitest"
-import { LIFECYCLE_POLICY } from "../plugins/shared/lifecycle-policy"
+import { LIFECYCLE_POLICY, PLAN_APPROVAL_GATES } from "../plugins/shared/lifecycle-policy"
 
 type Config = {
   agents?: Record<string, { permissions?: { action: string; resource: string; effect: string }[] }>
@@ -138,6 +138,60 @@ describe("lifecycle handoff contract", () => {
     expect(buildGateway).toContain("owns the canonical trigger and evidence")
     expect(global).not.toContain("| Trigger")
     expect(global).toContain("do not maintain a second trigger table")
+  })
+})
+
+describe("collapsed Plan approval gates", () => {
+  const planGateway = readFileSync("skills/oc/oc-plan-gateway/SKILL.md", "utf8")
+
+  it("uses the canonical timestamp-free formats from the lifecycle policy", () => {
+    for (const gate of PLAN_APPROVAL_GATES) {
+      expect(planGateway).toContain(gate.format)
+      expect(gate.format).toContain(gate.keyword)
+      expect(gate.format).not.toMatch(/ISO-8601|<ISO|timestamp/i)
+    }
+    expect(planGateway).not.toContain("<ISO-8601 timestamp>")
+  })
+
+  it("posts labelled agent-authored requests that are not approval evidence", () => {
+    for (const gate of PLAN_APPROVAL_GATES) {
+      expect(gate.requestLabel).toContain("APPROVAL-REQUEST")
+      expect(gate.requestLabel).not.toContain("APPROVED")
+      expect(planGateway).toContain(gate.requestLabel)
+    }
+    expect(planGateway).toContain("never include the approval keyword in the request body")
+    expect(planGateway).toContain("This record is never approval evidence")
+    expect(planGateway).toContain("Robin never copies a template")
+  })
+
+  it("starts a read-only watcher at both gates without replacing read-back", () => {
+    const [definePart, afterDefine] = planGateway.split("## 2. Plan vertical slices")
+    const [breakdownSteps] = afterDefine.split("## Gate watcher")
+
+    expect(definePart).toContain("read-only background **Gate watcher**")
+    expect(breakdownSteps).toContain("read-only background **Gate watcher**")
+    expect(planGateway).toContain("GATE APPROVAL PRESENT")
+    expect(planGateway).toContain("WATCHER EXPIRED")
+    expect(planGateway).toContain("never replaces the mandatory read-back verification")
+    expect(planGateway).toContain("Session-lifetime limitation")
+  })
+
+  it("collapses the spec gate to one approval and keeps the PRD off the gate list", () => {
+    expect(planGateway).toContain("single `SPEC-APPROVED` comment")
+    expect(planGateway).toContain("No chat approval round-trip remains")
+    expect(planGateway).toContain("**The PRD is not a gate**")
+    expect(planGateway).toContain("Exactly two one-line comments from Robin per feature, total")
+    expect(planGateway).toContain("create issues in dependency order")
+  })
+
+  it("scopes the global push rule to issues, merges and main", () => {
+    const agents = readFileSync("AGENTS.md", "utf8")
+
+    expect(agents).toContain("No GitHub issues are opened before the user explicitly approves")
+    expect(agents).toContain("branch and its PR are the review surface and may be opened before approval")
+    expect(agents).toContain("never merge")
+    expect(agents).toContain("never push to `main`")
+    expect(agents).not.toContain("Nothing is pushed or published")
   })
 })
 

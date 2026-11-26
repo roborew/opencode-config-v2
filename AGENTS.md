@@ -99,9 +99,9 @@ agent working here, read this half first and follow it.
 
 ## Hard rules
 
-- Nothing is pushed or published, and no GitHub issues are opened, until the user
-  explicitly approves. The user merges; agents never merge, never force-push, and
-  never push to `main`.
+- No GitHub issues are opened before the user explicitly approves. The spec
+  branch and its PR are the review surface and may be opened before approval. The
+  user merges; agents never merge, never force-push, and never push to `main`.
 - Nothing is copied from earlier config repos. The vendored content is addy's
   skills under `skills/addy/` and Matt Pocock's promoted production skills under
   `skills/matt/`, both unmodified at the release/commit pinned in their

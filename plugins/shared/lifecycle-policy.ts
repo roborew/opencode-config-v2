@@ -51,6 +51,56 @@ export const EVIDENCE_KINDS = [
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number]
 export type PrimaryOwner = "plan" | "build" | "shared"
 
+/**
+ * Plan human-gate evidence rules.
+ *
+ * Both gates are owner-authored GitHub comments. GitHub's `created_at` is the
+ * authoritative timestamp, so records carry no self-typed timestamp. Agents
+ * post only the labelled approval-request records; they never author or edit
+ * an approval record.
+ */
+export interface PlanApprovalGate {
+  readonly id: "spec" | "breakdown"
+  readonly keyword: string
+  readonly artifact: "spec PR" | "PRD"
+  readonly format: string
+  readonly requestLabel: string
+  readonly digest: "sha256" | null
+}
+
+export const PLAN_APPROVAL_GATES: readonly PlanApprovalGate[] = [
+  {
+    id: "spec",
+    keyword: "SPEC-APPROVED",
+    artifact: "spec PR",
+    format: "SPEC-APPROVED: <spec path> @ <full commit SHA> — Robin",
+    requestLabel: "SPEC-APPROVAL-REQUEST",
+    digest: null,
+  },
+  {
+    id: "breakdown",
+    keyword: "BREAKDOWN-APPROVED",
+    artifact: "PRD",
+    format: "BREAKDOWN-APPROVED: <sha256> @ <full spec commit SHA> — Robin",
+    requestLabel: "BREAKDOWN-APPROVAL-REQUEST",
+    digest: "sha256",
+  },
+]
+
+export const PLAN_APPROVAL_RULES = {
+  author: "owner-authored comment outside agent tools",
+  timestamp: "GitHub created_at",
+  rejected: ["missing", "stale", "superseded", "bot-authored", "digest-mismatched"],
+  digestSource: "the displayed ordered lines: number | title | blockers | labels",
+  watcher: {
+    readOnly: true,
+    limitSeconds: 7200,
+    intervalSeconds: 30,
+    present: "GATE APPROVAL PRESENT",
+    expired: "WATCHER EXPIRED",
+  },
+} as const
+
 export interface SkillActivation {
   readonly phase: ActivationPhase
   readonly trigger: TriggerId

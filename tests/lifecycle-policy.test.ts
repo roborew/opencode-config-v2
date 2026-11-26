@@ -4,6 +4,8 @@ import {
   EVIDENCE_KINDS,
   LIFECYCLE_PHASES,
   LIFECYCLE_POLICY,
+  PLAN_APPROVAL_GATES,
+  PLAN_APPROVAL_RULES,
   TRIGGER_LANES,
   evaluateLifecycle,
   type EvidenceKind,
@@ -140,5 +142,37 @@ describe("evidence kinds", () => {
     expect(kinds).toContain("validated-outcome")
     expect(kinds).toContain("human-approval")
     expect(kinds).not.toContain("completed")
+  })
+})
+
+describe("Plan approval gate evidence", () => {
+  it("defines exactly the two timestamp-free human gates", () => {
+    expect(PLAN_APPROVAL_GATES.map((gate) => gate.id)).toEqual(["spec", "breakdown"])
+
+    for (const gate of PLAN_APPROVAL_GATES) {
+      expect(gate.format).toContain(gate.keyword)
+      expect(gate.format).not.toMatch(/ISO-8601|<ISO|timestamp/i)
+      expect(gate.requestLabel).toContain("APPROVAL-REQUEST")
+      expect(gate.requestLabel).not.toContain("APPROVED")
+    }
+  })
+
+  it("keeps the spec SHA gate and the PRD digest gate distinct", () => {
+    const spec = PLAN_APPROVAL_GATES.find((gate) => gate.id === "spec")
+    const breakdown = PLAN_APPROVAL_GATES.find((gate) => gate.id === "breakdown")
+
+    expect(spec).toMatchObject({ artifact: "spec PR", digest: null })
+    expect(breakdown).toMatchObject({ artifact: "PRD", digest: "sha256" })
+    expect(breakdown?.format).toContain("<sha256>")
+  })
+
+  it("records the platform timestamp and watcher bounds in the canonical policy", () => {
+    expect(PLAN_APPROVAL_RULES.timestamp).toBe("GitHub created_at")
+    expect(PLAN_APPROVAL_RULES.rejected).toEqual(
+      expect.arrayContaining(["stale", "superseded", "bot-authored", "digest-mismatched"]),
+    )
+    expect(PLAN_APPROVAL_RULES.watcher.readOnly).toBe(true)
+    expect(PLAN_APPROVAL_RULES.watcher.limitSeconds).toBe(7200)
+    expect(PLAN_APPROVAL_RULES.watcher.intervalSeconds).toBe(30)
   })
 })

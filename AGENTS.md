@@ -29,6 +29,25 @@ Core rules in every mode:
 - Models come from OpenCode Zen and OpenCode Go only; force-push and
   push-to-main are denied by policy.
 
+## Code index (when available)
+
+On the server, a local `code-index` MCP (codebase-memory-mcp) is attached; on the
+Mac it is absent. If `code-index_*` tools are present:
+
+- Once per repo or slice worktree, call `index_status`; if the project is
+  missing, call `index_repository` with the repo's absolute path. A refresh loop
+  keeps indexed projects current and drops removed worktrees, so don't re-index
+  by hand.
+- For "where is…" and "how does… work" questions, use `search_graph` with `query`
+  first. For structure (callers, callees, call paths), use `search_graph` with
+  `name_pattern`, then `trace_path`. Read the files these point to first. The
+  index has its own ignore rules, so if results look incomplete or a
+  `code-index_*` call fails, fall back to `glob`, `grep` and file reads.
+- Use `grep` for literal text (strings, config keys, error messages).
+
+If the tools are absent, carry on with `grep` and file reads as usual. The index
+is an aid, never a gate: no lifecycle step depends on it.
+
 ## Two gateway modes, then contextual Addy skills
 
 **Plan and Build are the only gateways the flow needs.** The `oc-skills` prompt hook

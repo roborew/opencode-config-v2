@@ -168,18 +168,22 @@ say why, and `${VAR:-default}` knobs.
 
 ```yaml
   code-index:
+    # As built (opencode-server#11). No CBM_ALLOWED_ROOT: it takes one root, and
+    # code lives under two (apps and worktrees); the read-only mounts bound it.
     build: { context: ./docker/code-index, args: { CBM_VERSION: ${CBM_VERSION:-0.12.1} } }
-    container_name: opencode-code-index
+    container_name: code-index
     restart: unless-stopped
-    mem_limit: ${CODE_INDEX_MEMORY_LIMIT:-4g}
+    mem_limit: ${CODE_INDEX_MEMORY_LIMIT:-2g}
+    read_only: true
+    cap_drop: [ALL]
     environment:
-      CBM_CACHE_DIR: /var/lib/code-index
-      CBM_ALLOWED_ROOT: ${OPENCODE_APPS_DIR:-${HOME}/projects}
       CODE_INDEX_TOKEN: ${CODE_INDEX_TOKEN:?set CODE_INDEX_TOKEN}
+      CODE_INDEX_REFRESH_SECONDS: ${CODE_INDEX_REFRESH_SECONDS:-30}
     volumes:
       - code-index-cache:/var/lib/code-index
       - ${OPENCODE_APPS_DIR:-${HOME}/projects}:${OPENCODE_APPS_DIR:-${HOME}/projects}:ro
-    networks: [opencode-net]
+      - ${OPENCODE_WORKTREES_DIR:-${HOME}/.local/share/opencode/worktree}:${OPENCODE_WORKTREES_DIR:-${HOME}/.local/share/opencode/worktree}:ro
+    networks: [code-index-net]   # internal: true, shared only with opencode
 ```
 
 ```jsonc
@@ -227,8 +231,9 @@ say why, and `${VAR:-default}` knobs.
 
 1. `docker compose config` for opencode-server has no `milvus`, `etcd`, `minio`,
    `claude-context`, `MILVUS_*`, `EMBEDDING_PROVIDER` or `COMPOSE_PROFILES=milvus`.
-   `grep -ri 'milvus\|claude-context'` over both repos only finds this spec and the
-   changelog/ADR that records the removal.
+   `grep -ri 'milvus\|claude-context'` over both repos' active configuration and
+   code (excluding retained records: `docs/plan/`, `docs/adr/`, and the audit and
+   integration notes that record the removal) finds nothing.
 2. `./scripts/compose.sh up -d --build` starts `opencode`, `twingate-connector` and
    `code-index`, and all three report healthy.
 3. A server OpenCode session lists `code-index_*` tools, and indexing an app repo

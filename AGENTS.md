@@ -40,7 +40,9 @@ Mac it is absent. If `code-index_*` tools are present:
   by hand.
 - For "where is…" and "how does… work" questions, use `search_graph` with `query`
   first. For structure (callers, callees, call paths), use `search_graph` with
-  `name_pattern`, then `trace_path`. Read only the files these point to.
+  `name_pattern`, then `trace_path`. Read the files these point to first. The
+  index has its own ignore rules, so if results look incomplete or a
+  `code-index_*` call fails, fall back to `glob`, `grep` and file reads.
 - Use `grep` for literal text (strings, config keys, error messages).
 
 If the tools are absent, carry on with `grep` and file reads as usual. The index
